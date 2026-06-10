@@ -1,0 +1,56 @@
+//
+//  PanelPresentation.swift
+//  Nodee
+//
+//  Shared open/closed state the SwiftUI surface animates against. The
+//  controller flips `isExpanded` inside `withAnimation`; the root view reads it
+//  to scale/fade from the Notch anchor.
+//
+
+import SwiftUI
+
+@MainActor
+@Observable
+final class PanelPresentation {
+    /// Committed state: the panel is fully expanded into the canvas.
+    var isExpanded: Bool = false
+
+    /// The pointer is hovering the closed notch's hit area. Drives a subtle
+    /// grow that invites the open gesture.
+    var isHoveringNotch: Bool = false
+
+    /// Live progress of the in-flight two-finger open gesture, 0…1. Only
+    /// meaningful while `isExpanded == false`; lets the closed notch peek down
+    /// under the finger (rubber band) before the open commits.
+    var openProgress: CGFloat = 0
+
+    /// The pointer is over the bottom grabber's hit area while expanded. Drives
+    /// the grabber highlight and gates the finger-swipe condense so it never
+    /// competes with the canvas pan.
+    var isHoveringGrabber: Bool = false
+
+    /// Live upward drag progress on the grabber, 0…1, for the rubber-band pull
+    /// before a drag commits a condense.
+    var grabberDragProgress: CGFloat = 0
+
+    /// Invoked by the SwiftUI grabber (tap or drag-up commit) to condense. The
+    /// controller wires this to `close()`.
+    var requestCondense: () -> Void = {}
+
+    /// Source of truth for the Projects sidebar collapse state, shared between
+    /// the SwiftUI surface (toolbar toggle, transitions) and the controller's
+    /// three-finger swipe (which collapses / expands it).
+    var isSidebarCollapsed: Bool = false
+
+    /// Set the side Preview pane's visibility. Wired by the browser surface so the
+    /// controller's three-finger swipe can toggle it — the controller can't reach
+    /// the BrowserViewModel directly.
+    var setPreviewVisible: ((Bool) -> Void)?
+
+    /// Return first responder to the Notch gesture view. SwiftUI buttons (toolbar,
+    /// breadcrumb) steal it on click, which silences the indirect-touch gestures
+    /// (three-finger panel toggle, grabber condense) until the panel reopens. The
+    /// controller wires this to `makeFirstResponder(gestureView)`; call it after
+    /// any control that may have grabbed focus.
+    var reclaimGestureFocus: () -> Void = {}
+}

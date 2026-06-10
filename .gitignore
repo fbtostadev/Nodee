@@ -1,0 +1,41 @@
+# Copilot/Claude artifacts
+CLAUDE.md
+*.claude.md
+*-claude.md
+claude-*.md
+
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.playground
+.swiftpm/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+*.swo
+*~
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+.npm
+
+# IDEs
+.vscode/
+.sublime-project
+.sublime-workspace
+
+# Environment
+.env
+.env.local

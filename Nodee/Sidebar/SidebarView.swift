@@ -1,0 +1,262 @@
+//
+//  SidebarView.swift
+//  Nodee
+//
+//  Finder-style sidebar: a "Locais" section (standard folders derived from the
+//  granted Home) and a "Favoritos" section (user-pinned folders, persisted as
+//  security-scoped bookmarks). Favorite a folder by dragging it from Finder or
+//  via the + button. Removing a favorite never touches the folder on disk.
+//
+
+import SwiftUI
+import SwiftData
+import AppKit
+
+struct SidebarView: View {
+    @Environment(\.modelContext) private var context
+    @Environment(AppState.self) private var appState
+
+    let locations: [SidebarLocation]
+    let projects: [PinnedProject]
+    /// The directory currently in view — used to light up the matching Location.
+    let currentDirectory: URL?
+    /// The favorite explicitly opened (highlight that survives drilling into it).
+    let selectedFavoriteID: UUID?
+    let width: CGFloat
+    let onSelectLocation: (SidebarLocation) -> Void
+    let onSelectFavorite: (PinnedProject) -> Void
+    let onCollapse: () -> Void
+    /// Files dropped onto a favorite's row: move them into it on disk (copy when
+    /// ⌥ is held). Implemented by PanelRootView, which owns the browser VM.
+    let onDropFiles: (_ urls: [URL], _ project: PinnedProject, _ copy: Bool) -> Void
+    /// Files dropped onto a Location's row: move (or ⌥-copy) them into that folder.
+    /// Locations live under the Home grant, so the URL is moved into directly.
+    let onDropIntoLocation: (_ urls: [URL], _ folder: URL, _ copy: Bool) -> Void
+
+    @State private var isDropTargeted = false
+    /// The favorite row a drag is currently hovering over (for the drop highlight).
+    @State private var dropTargetID: UUID?
+    /// The Location row a drag is currently hovering over (for the drop highlight).
+    @State private var dropTargetLocationID: URL?
+
+    /// The Location whose folder is the deepest ancestor of (or equal to) the
+    /// current directory — the one to highlight. Nil when an explicit favorite is
+    /// selected (its highlight takes over).
+    private var activeLocationURL: URL? {
+        guard selectedFavoriteID == nil, let current = currentDirectory?.standardizedFileURL.path else { return nil }
+        return locations
+            .filter { current == $0.url.standardizedFileURL.path || current.hasPrefix($0.url.standardizedFileURL.path + "/") }
+            .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }?
+            .url
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider().overlay(Color.white.opacity(0.08))
+            content
+        }
+        .frame(width: width)
+        .background(.black.opacity(0.18))
+        .overlay {
+            // The whole-sidebar "favorite here" border — suppressed while a
+            // specific favorite or location row is the drop target (it shows its own).
+            RoundedRectangle(cornerRadius: 0)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(showsPinBorder ? 1 : 0)
+        }
+        .animation(.easeInOut(duration: 0.16), value: showsPinBorder)
+    }
+
+    /// Whether the whole-sidebar "favorite here" border should show: a drag is over
+    /// the sidebar but not over any specific row (those show their own highlight).
+    private var showsPinBorder: Bool {
+        isDropTargeted && dropTargetID == nil && dropTargetLocationID == nil
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            Text("Nodee")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            Spacer()
+            Button(action: onCollapse) {
+                Image(systemName: "square.lefthalf.filled")
+                    .font(.system(size: 13))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.45))
+            .help("Recolher sidebar")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+    }
+
+    // MARK: - Content
+
+    private var content: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                if !locations.isEmpty {
+                    sectionHeader("Locais")
+                    ForEach(locations) { location in
+                        locationRow(location)
+                    }
+                }
+
+                favoritesHeader
+                    .padding(.top, locations.isEmpty ? 0 : 10)
+                ForEach(projects) { project in
+                    favoriteRow(project)
+                }
+            }
+            .padding(8)
+        }
+        // "Favorite a folder here" drop sits *behind* the rows, so a drop onto a
+        // favorite row hits that row's own destination (move into it) instead of
+        // being swallowed by this whole-sidebar one. Only drops on empty space
+        // fall through to here and pin.
+        .background {
+            Color.clear
+                .contentShape(Rectangle())
+                .dropDestination(for: URL.self) { urls, _ in
+                    pin(urls); return true
+                } isTargeted: { isDropTargeted = $0 }
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.35))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+    }
+
+    private var favoritesHeader: some View {
+        HStack {
+            Text("FAVORITOS")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.35))
+            Spacer()
+            Button(action: addViaPanel) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white.opacity(0.6))
+            .help("Adicionar pasta aos favoritos")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - Rows
+
+    private func locationRow(_ location: SidebarLocation) -> some View {
+        let isSelected = location.url.standardizedFileURL == activeLocationURL?.standardizedFileURL
+        let isDropTarget = location.id == dropTargetLocationID
+        return rowLabel(systemImage: location.systemImage, name: location.name, isSelected: isSelected, isDropTarget: isDropTarget)
+            .contentShape(Rectangle())
+            .onTapGesture { onSelectLocation(location) }
+            .dropDestination(for: URL.self) { urls, _ in
+                onDropIntoLocation(urls, location.url, NSEvent.modifierFlags.contains(.option))
+                return true
+            } isTargeted: { targeted in
+                dropTargetLocationID = targeted ? location.id : (dropTargetLocationID == location.id ? nil : dropTargetLocationID)
+            }
+    }
+
+    private func favoriteRow(_ project: PinnedProject) -> some View {
+        let isSelected = project.id == selectedFavoriteID
+        let isDropTarget = project.id == dropTargetID
+        return rowLabel(systemImage: "folder.fill", name: project.name, isSelected: isSelected, isDropTarget: isDropTarget)
+            .contentShape(Rectangle())
+            .onTapGesture { onSelectFavorite(project) }
+            .dropDestination(for: URL.self) { urls, _ in
+                onDropFiles(urls, project, NSEvent.modifierFlags.contains(.option))
+                return true
+            } isTargeted: { targeted in
+                dropTargetID = targeted ? project.id : (dropTargetID == project.id ? nil : dropTargetID)
+            }
+            .contextMenu {
+                Button("Remover dos favoritos", role: .destructive) { remove(project) }
+            }
+    }
+
+    private func rowLabel(systemImage: String, name: String, isSelected: Bool, isDropTarget: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13))
+                .foregroundStyle(isSelected ? Color.accentColor : .white.opacity(0.55))
+                .frame(width: 16)
+            Text(name)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(isSelected ? 0.95 : 0.75))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(isDropTarget ? Color.accentColor.opacity(0.18)
+                    : isSelected ? Color.white.opacity(0.10) : .clear,
+                    in: RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                .opacity(isDropTarget ? 1 : 0)
+        }
+        // Ease the drop highlight in/out instead of snapping it.
+        .animation(.easeInOut(duration: 0.16), value: isDropTarget)
+    }
+
+    // MARK: - Actions
+
+    private func pin(_ urls: [URL]) {
+        let directories = urls.filter {
+            let values = try? $0.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            // Only real folders are pinnable projects — not bundles like .app/.pages.
+            return values?.isDirectory == true && values?.isPackage != true
+        }
+        var nextIndex = (projects.map(\.sortIndex).max() ?? -1) + 1
+        for directory in directories {
+            guard let bookmark = SecurityScopedBookmark.make(for: directory) else { continue }
+            let project = PinnedProject(
+                name: directory.lastPathComponent,
+                bookmark: bookmark,
+                sortIndex: nextIndex
+            )
+            context.insert(project)
+            nextIndex += 1
+        }
+        try? context.save()
+    }
+
+    private func addViaPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Adicionar"
+        panel.message = "Escolha uma ou mais pastas para adicionar aos favoritos"
+        // The Nodee panel floats at `.statusBar` and is rendered out-of-process by
+        // Powerbox (it ignores the open panel's own level), so lower the Notch for
+        // the duration to keep the picker from hiding behind it.
+        NSApp.activate()
+        let response = appState.runWithPanelLowered { panel.runModal() }
+        if response == .OK {
+            pin(panel.urls)
+        }
+    }
+
+    private func remove(_ project: PinnedProject) {
+        if let resolved = SecurityScopedBookmark.resolve(project.bookmark) {
+            appState.endAccess(resolved.url)
+        }
+        context.delete(project)
+        try? context.save()
+    }
+}

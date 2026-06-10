@@ -1,0 +1,114 @@
+Relatorio de Status e Revisao Tecnica - Projeto Nodee
+======================================================
+
+Esta nota resume o estado atual das implementacoes do sistema de Arvore Orbital + Parentalidade e detalha o crash de inicializacao reportado na Thread Principal (EXC_BREAKPOINT).
+
+------------------------------------------------------
+1. Implementacoes Recentes: Arvore Orbital + Parentalidade
+------------------------------------------------------
+
+O objetivo principal desta iteracao foi substituir o layout linear por profundidade (grade vertical/horizontal) por um modelo de posicionamento orbital e organico. Isso permite que o canvas aproveite melhor a area de tela limitada de ~20% do Notch (cerca de 1040x660pt em telas de 14"), comunicando a relacao de parentalidade por proximidade espacial e arcos concentricos.
+
+Foram adicionados/modificados os seguintes arquivos no diretorio Nodee/Canvas/ e Support/:
+
+A. Novos Arquivos:
+1. NodeScale.swift (Nodee/Canvas/NodeScale.swift)
+   * Define o enum de escala semantica para os nos em 3 tamanhos baseados na distancia radial em relacao ao no em foco:
+     - .full (148x116pt): Apresenta o header, icone e preview completo (thumbnail/snippet/symbol).
+     - .compact (88x34pt): Apenas HStack com icone e nome truncado.
+     - .dot (28x28pt): Circulo minimalista colorido por FileKind.accentColor, com tooltip no hover.
+
+2. OrbitalLayout.swift (Nodee/Canvas/OrbitalLayout.swift)
+   * Mecanismo de layout puro (sem SwiftUI).
+   * Constroi uma arvore estruturada de nos visiveis (buildVisibleTree()) em vez de listas lineares.
+   * Aplica distribuicao radial (apply()) distribuindo filhos em arcos de 270 graus abertos no topo.
+   * Executa relaxamento de forcas simples para evitar colisoes e sobreposicoes (resolveCollisions()).
+   * Calcula a escala semantica dos nos conforme a profundidade relativa em relacao ao no focado.
+
+B. Arquivos Modificados:
+1. CanvasNode.swift (Nodee/Canvas/CanvasNode.swift)
+   * Adicionada a propriedade `scale: NodeScale`.
+   * Em CanvasEdge, substituido `isHorizontal: Bool` por `parentCenter: CGPoint?` (para tracar curvas bezier orbitais) e `depth: Int`.
+
+2. CanvasViewModel.swift (Nodee/Canvas/CanvasViewModel.swift)
+   * Substituicao do antigo algoritmo de posicionamento de grade pela arvore do OrbitalLayout.
+   * Introducao de `focalNode: URL?` (para manter o foco na ultima pasta expandida) e `orbitalRings: [OrbitalRing]`.
+   * Modificacao do toggleFolder(_:) para produzir animacoes de bloom (florescimento/convergencia) ao expandir/colapsar pastas.
+
+3. FileNodeView.swift (Nodee/Canvas/FileNodeView.swift)
+   * Renderizacao condicional por switch baseado em scale (.full, .compact, .dot).
+   * Adicao do modifier .orbitalGlow() para pastas ativas emanarem uma sombra de acento radial (centro de gravidade).
+
+4. NodeCanvasView.swift (Nodee/Canvas/NodeCanvasView.swift)
+   * Camada de fundo desenhando os aneis tracejados (OrbitalRings) de orbita.
+   * Adaptacao do EdgeShape para curvar-se de forma concentrica contornando os aneis quando ha um parentCenter ativo.
+
+5. Theme.swift (Nodee/Support/Theme.swift)
+   * Adicionadas as constantes do layout orbital: orbitalBaseRadius (140), orbitalRadiusPerChild (18), orbitalMaxRadius (280), orbitalChildRadiusFactor (0.60), orbitalArcSpan (270 graus), e orbitalExpand (mola de transicao).
+
+6. CLAUDE.md (CLAUDE.md)
+   * Atualizado com a nova estrutura de arquivos e status do layout orbital.
+
+------------------------------------------------------
+2. Investigacao de Bug: Crash EXC_BREAKPOINT no Lancamento
+------------------------------------------------------
+
+O erro reportado:
+Thread 1: EXC_BREAKPOINT (code=1, subcode=0x190f77144)
+
+O crash acontece na linha 128 de NotchPanelController.swift:
+```swift
+private func positionWindow() {
+    guard let screen = NotchGeometry.activeScreen() else { return }
+    panel.setFrame(NotchGeometry(screen: screen).hostWindowFrame, display: true) // <-- CRASH
+}
+```
+
+Tres Hipoteses de Causa Raiz:
+
+Hipotese 1: Valores NaN ou Infinity na Geometria da Janela
+Se as dimensoes da tela principal (screen.frame) forem computadas com zero ou nao estiverem prontas no momento da chamada, a divisao na propriedade panelSize pode falhar:
+```swift
+var panelSize: CGSize {
+    let ratio = Theme.panelAspectRatio
+    let targetArea = screen.frame.width * screen.frame.height * Theme.panelScreenAreaFraction
+    let height = (targetArea / ratio).squareRoot()
+    let width = height * ratio
+    return CGSize(width: width.rounded(), height: height.rounded())
+}
+```
+Se screen.frame for .zero (comum em inicializacoes headless ou transicao de monitores), targetArea sera 0, o que resulta em largura/altura 0. No entanto, se ratio for 0 (ou indefinido), ou se algum valor de tamanho retornar NaN/Infinity, passar esse CGRect para panel.setFrame causara um crash silencioso do AppKit (sinalizado por EXC_BREAKPOINT).
+* Verificacao: Theme.panelAspectRatio e computado como 1040.0 / 660.0, o que e seguro. Mas e se screen.frame.width ou height vierem invalidos?
+
+Hipotese 2: Problema com as APIs de Notch no NSScreen
+A propriedade notchWidth em NotchGeometry.swift acessa APIs especiais do macOS Catalina/Monterey+:
+```swift
+var notchWidth: CGFloat {
+    guard let left = screen.auxiliaryTopLeftArea,
+          let right = screen.auxiliaryTopRightArea else { return 0 }
+    return max(0, screen.frame.width - left.width - right.width)
+}
+```
+Dependendo do hardware/versao do OS do usuario (por exemplo, simulador, maquina com display externo sem Notch fisico, ou arquiteturas especificas de GPU), ler auxiliaryTopLeftArea / auxiliaryTopRightArea no NSScreen principal ou tentar fazer operacoes aritmeticas em cima de suas propriedades opcionais pode causar comportamento indefinido ou crash inesperado de layout.
+
+Hipotese 3: Violacao de MainActor / Thread Concurrency
+O metodo positionWindow() e disparado tanto em activate() quanto dentro do observador de mudancas de tela:
+```swift
+private func observeScreenChanges() {
+    NotificationCenter.default.addObserver(
+        forName: NSApplication.didChangeScreenParametersNotification,
+        object: nil,
+        queue: .main
+    ) { [weak self] _ in
+        MainActor.assumeIsolated { self?.positionWindow() }
+    }
+}
+```
+Se o observador ou o proprio ciclo do AppKit invocar positionWindow() antes que o panel ou o NSWindow subjacente estejam totalmente ligados ao contexto de tela no applicationDidFinishLaunching, o runtime do Swift Concurrency (MainActor.assumeIsolated) ou o AppKit pode disparar um trap/breakpoint caso a thread ou o isolamento do ator nao estejam alinhados corretamente.
+
+------------------------------------------------------
+3. Proximos Passos Sugeridos para o Proximo Claude
+------------------------------------------------------
+1. Adicionar Logs Defensivos: Inserir prints em NotchGeometry e positionWindow() para inspecionar os valores numericos de screen.frame e do CGRect de hostWindowFrame antes do setFrame.
+2. Clampar Geometria: Tratar hostWindowFrame para garantir que largura, altura, X e Y nao possuam valores NaN, Infinite ou negativos menores do que dimensoes de seguranca minimas.
+3. Verificar ciclo de vida: Garantir que positionWindow() so execute apos a aplicacao ter concluido a configuracao das janelas em tela.
