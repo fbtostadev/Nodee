@@ -25,6 +25,7 @@ struct SidebarLocation: Identifiable, Hashable {
             ("Desktop", "menubar.dock.rectangle", "Desktop"),
             ("Documentos", "doc", "Documents"),
             ("Downloads", "arrow.down.circle", "Downloads"),
+            ("iCloud Drive", "cloud", "Library/Mobile Documents/com~apple~CloudDocs"),
         ]
         return candidates.compactMap { name, image, sub in
             let url = sub.map { home.appendingPathComponent($0) } ?? home
