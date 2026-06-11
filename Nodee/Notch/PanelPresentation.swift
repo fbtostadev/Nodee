@@ -47,6 +47,16 @@ final class PanelPresentation {
     /// the BrowserViewModel directly.
     var setPreviewVisible: ((Bool) -> Void)?
 
+    /// The screen the panel is currently anchored to — the display under the
+    /// pointer, resolved by the controller when opening and on display
+    /// reconfiguration. The SwiftUI surface derives its Notch geometry (size,
+    /// `panelScale`, Notch-vs-pill shape) from this so it always agrees with the
+    /// display the host window was placed on. Without a shared source of truth the
+    /// window and content disagree about the screen when moving between the
+    /// built-in display and an external monitor, producing a wrong-sized /
+    /// clipped panel.
+    var activeScreen: NSScreen? = NotchGeometry.activeScreen()
+
     /// Return first responder to the Notch gesture view. SwiftUI buttons (toolbar,
     /// breadcrumb) steal it on click, which silences the indirect-touch gestures
     /// (three-finger panel toggle, grabber condense) until the panel reopens. The

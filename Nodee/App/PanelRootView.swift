@@ -15,12 +15,25 @@ struct PanelRootView: View {
     @Environment(PanelPresentation.self) private var presentation
     @Query(sort: \PinnedProject.sortIndex) private var projects: [PinnedProject]
 
-    @State private var geometry = NotchGeometry(screen: NotchGeometry.activeScreen() ?? NSScreen.main!)
     @State private var browser: BrowserViewModel
     @State private var toast = ToastCenter()
     /// The favorite explicitly opened (sidebar highlight). Locations highlight
     /// themselves live off the current directory.
     @State private var selectedFavoriteID: UUID?
+    /// Independent visibility state for the content and shadow, driven by the
+    /// onChange orchestrator below. Keeping them separate from `isExpanded`
+    /// gives each layer its own animation timeline so the panel reads as a
+    /// single solid block: shape expands first, content and shadow reveal after.
+    @State private var contentVisible = false
+    @State private var shadowVisible  = false
+
+    /// Notch geometry for the screen the controller anchored the panel to. Derived
+    /// (not stored) so it always tracks `presentation.activeScreen` — the same
+    /// display the host window was placed on — keeping size, scale and the
+    /// Notch-vs-pill shape consistent across built-in / external monitors.
+    private var geometry: NotchGeometry {
+        NotchGeometry(screen: presentation.activeScreen ?? NSScreen.main!)
+    }
 
     private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
 
@@ -46,17 +59,17 @@ struct PanelRootView: View {
                 .fill(Theme.panelBackground)
                 .frame(width: metrics.width, height: metrics.height)
                 .shadow(
-                    color: .black.opacity(0.55),
-                    radius: presentation.isExpanded ? 28 : 0,
-                    y: presentation.isExpanded ? 14 : 0
+                    color: .black.opacity(shadowVisible ? 0.45 : 0),
+                    radius: 28,
+                    y: 0
                 )
 
             // The inner content, revealed only once expanded; masked to the
             // shape so it never spills out during the morph.
             surface
                 .frame(width: geometry.panelSize.width, height: geometry.panelSize.height)
-                .scaleEffect(presentation.isExpanded ? 1 : 0.8, anchor: .top)
-                .opacity(presentation.isExpanded ? 1 : 0)
+                .scaleEffect(1, anchor: .top)
+                .opacity(contentVisible ? 1 : 0)
                 .mask {
                     panelShape(metrics)
                         .frame(width: metrics.width, height: metrics.height)
@@ -74,10 +87,26 @@ struct PanelRootView: View {
             appState.resolveHomeAccess()
             restoreSession()
         }
-        .animation(Theme.panelOpen, value: presentation.isExpanded)
+        .animation(presentation.isExpanded ? Theme.panelOpen : Theme.panelClose, value: presentation.isExpanded)
         .animation(Theme.notchStretch, value: presentation.isHoveringNotch)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
-            geometry = NotchGeometry(screen: NotchGeometry.activeScreen() ?? NSScreen.main!)
+        // Phase orchestrator: content and shadow have independent timelines so the
+        // panel reads as one solid block. On open the shape leads; content and
+        // shadow reveal after it has visibly grown. On close both vanish first so
+        // only the clean black shape retracts to the Notch.
+        .onChange(of: presentation.isExpanded) { _, expanded in
+            if expanded {
+                withAnimation(Theme.panelOpen.delay(Theme.panelContentRevealDelay)) {
+                    contentVisible = true
+                }
+                withAnimation(Theme.panelOpen.delay(Theme.panelShadowRevealDelay)) {
+                    shadowVisible = true
+                }
+            } else {
+                withAnimation(Theme.panelOverlayDismiss) {
+                    contentVisible = false
+                    shadowVisible  = false
+                }
+            }
         }
     }
 
@@ -142,7 +171,7 @@ struct PanelRootView: View {
                 )
                 .transition(.move(edge: .leading).combined(with: .opacity))
 
-                verticalRule
+                PaneDivider(paneSide: .leading, onCollapse: { setSidebarCollapsed(true) })
                     .transition(.opacity)
             }
 
@@ -171,6 +200,23 @@ struct PanelRootView: View {
                         .transition(.opacity)
                     }
                 }
+                // Left invitation strip — visible when the sidebar is collapsed,
+                // signals that a rightward swipe reveals it.
+                .overlay(alignment: .leading) {
+                    if isSidebarCollapsed {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white.opacity(0.10), location: 0),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: 12)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                    }
+                }
         }
         .overlay {
             RoundedRectangle(cornerRadius: Theme.panelCornerRadius * geometry.panelScale)
@@ -192,10 +238,6 @@ struct PanelRootView: View {
             }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.85), value: toast.current?.id)
-    }
-
-    private var verticalRule: some View {
-        Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1)
     }
 
     /// First-run gate: with no Home grant the browser has nothing to show, so we

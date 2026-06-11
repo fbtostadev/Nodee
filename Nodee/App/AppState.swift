@@ -56,8 +56,8 @@ final class AppState {
 
     private func registerDefaultHotKey() {
         hotKey = GlobalHotKey(
-            keyCode: GlobalHotKey.keyN,
-            modifiers: GlobalHotKey.optionCommand
+            keyCode: GlobalHotKey.keyBackslash,
+            modifiers: GlobalHotKey.optionOnly
         ) { [weak self] in
             self?.togglePanel()
         }

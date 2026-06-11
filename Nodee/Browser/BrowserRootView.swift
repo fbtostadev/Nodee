@@ -22,10 +22,13 @@ struct BrowserRootView: View {
     // keys. We read the keyboard through a local event monitor instead.
     @State private var keyMonitor: Any?
 
-    // Two-finger horizontal swipe → folder-depth navigation (List mode only):
-    // right steps into the selected folder, left up to the parent. Columns is
-    // excluded so it never fights the column pan. (Hiding the side panels moved
-    // to a three-finger swipe, routed by the panel controller.)
+    // Two-finger horizontal swipe zones:
+    //   • Sidebar strip (left)  → show/hide the Projects sidebar.
+    //   • Preview strip (right) → show/hide the Preview pane (List mode only).
+    //   • Middle (browser)      → folder-depth navigation (List mode only).
+    // Zones are non-overlapping, so the three actions never conflict.
+    @State private var sidebarGestureMonitor = ZoneGestureMonitor()
+    @State private var previewGestureMonitor = ZoneGestureMonitor()
     @State private var navGestureMonitor = ZoneGestureMonitor()
 
     var body: some View {
@@ -34,10 +37,33 @@ struct BrowserRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if vm.displayMode == .list, let file = vm.selectedFile, vm.isPreviewVisible {
-                verticalRule
+                PaneDivider(paneSide: .trailing, onCollapse: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        vm.previewPanOffset = 0
+                        vm.isPreviewVisible = false
+                    }
+                })
                 PreviewPane(file: file, width: Theme.previewWidth(panelWidth: panelWidth))
                     .offset(x: max(0, vm.previewPanOffset))
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        // Right invitation strip — visible in List mode when the preview is hidden,
+        // signals that a leftward swipe reveals it.
+        .overlay(alignment: .trailing) {
+            if vm.displayMode == .list, !vm.isPreviewVisible {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .white.opacity(0.10), location: 1)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: 12)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.isPreviewVisible)
             }
         }
         .background(Theme.canvasBackground)
@@ -53,16 +79,46 @@ struct BrowserRootView: View {
                 }
             }
 
-            // Two-finger horizontal navigation, gated to List mode and the browser
-            // content (clear of the Projects sidebar on the left).
+            // Sidebar strip: swipe right reveals, swipe left hides.
+            sidebarGestureMonitor.validZone = { location, windowSize in
+                let screenWidth = windowSize.width
+                let containerMinX = (screenWidth - panelWidth) / 2
+                let relativeX = location.x - containerMinX
+                return relativeX >= 0 && relativeX < Theme.sidebarWidth(panelWidth: panelWidth)
+            }
+            sidebarGestureMonitor.onCommit = { swipeRight in
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                    presentation.isSidebarCollapsed = !swipeRight
+                }
+            }
+            sidebarGestureMonitor.start()
+
+            // Preview strip: swipe left reveals, swipe right hides (List mode only).
+            previewGestureMonitor.validZone = { location, windowSize in
+                guard vm.displayMode == .list else { return false }
+                let screenWidth = windowSize.width
+                let containerMinX = (screenWidth - panelWidth) / 2
+                let relativeX = location.x - containerMinX
+                let previewEdge = panelWidth - Theme.previewWidth(panelWidth: panelWidth)
+                return relativeX >= previewEdge && relativeX <= panelWidth
+            }
+            previewGestureMonitor.onCommit = { swipeRight in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    vm.previewPanOffset = 0
+                    vm.isPreviewVisible = !swipeRight
+                }
+            }
+            previewGestureMonitor.start()
+
+            // Middle browser strip: folder-depth navigation (List mode only).
             navGestureMonitor.validZone = { location, windowSize in
                 guard vm.displayMode == .list else { return false }
-                let containerWidth = panelWidth
                 let screenWidth = windowSize.width
-                let containerMinX = (screenWidth - containerWidth) / 2
+                let containerMinX = (screenWidth - panelWidth) / 2
                 let relativeX = location.x - containerMinX
-                let sidebarEdge = presentation.isSidebarCollapsed ? 0 : Theme.sidebarWidth(panelWidth: panelWidth)
-                return relativeX >= sidebarEdge && relativeX <= containerWidth
+                let sidebarEdge = Theme.sidebarWidth(panelWidth: panelWidth)
+                let previewEdge = panelWidth - Theme.previewWidth(panelWidth: panelWidth)
+                return relativeX >= sidebarEdge && relativeX <= previewEdge
             }
             navGestureMonitor.onCommit = { swipeRight in
                 // Left drills into the selected folder; right climbs to the parent.
@@ -72,6 +128,8 @@ struct BrowserRootView: View {
         }
         .onDisappear {
             removeKeyMonitor()
+            sidebarGestureMonitor.stop()
+            previewGestureMonitor.stop()
             navGestureMonitor.stop()
             presentation.setPreviewVisible = nil
         }
@@ -119,10 +177,6 @@ struct BrowserRootView: View {
         case .list:    FileListView(vm: vm, topInset: topInset, bottomInset: bottomInset)
         case .columns: ColumnsView(vm: vm, topInset: topInset, bottomInset: bottomInset)
         }
-    }
-
-    private var verticalRule: some View {
-        Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1)
     }
 
     // MARK: - Keyboard
