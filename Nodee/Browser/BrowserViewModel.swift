@@ -631,10 +631,21 @@ final class BrowserViewModel {
 
     /// Copy the POSIX path(s) of the selection to the pasteboard (one per line).
     func copyPath() {
-        let paths = selection.map(\.path).sorted().joined(separator: "\n")
-        guard !paths.isEmpty else { return }
+        let urls = selection.map(\.path).sorted()
+        guard !urls.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(paths, forType: .string)
+        NSPasteboard.general.setString(urls.joined(separator: "\n"), forType: .string)
+        toast?.show(urls.count == 1 ? "Caminho copiado" : "\(urls.count) caminhos copiados",
+                    duration: 1.6)
+    }
+
+    /// Copy the current directory's POSIX path to the pasteboard — the toolbar's
+    /// "copy the URL" affordance, mirroring a browser's address-bar copy button.
+    func copyDirectoryPath() {
+        guard let dir = activeDirectory else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(dir.path, forType: .string)
+        toast?.show("Caminho copiado", duration: 1.6)
     }
 
     // MARK: - Disk reconciliation
