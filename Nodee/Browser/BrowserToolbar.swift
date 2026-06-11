@@ -18,6 +18,10 @@ struct BrowserToolbar: View {
     /// survives re-renders as the path mutates). Drives the per-crumb hover state.
     @State private var hoveredCrumb: URL?
 
+    /// Briefly flips the copy-path icon to a checkmark right after a copy, the
+    /// same momentary confirmation a browser's address-bar copy button gives.
+    @State private var didCopyPath = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Spacer that fills the notch zone — the area is still "in" the toolbar
@@ -33,6 +37,7 @@ struct BrowserToolbar: View {
                     Spacer(minLength: 0)
                 }
                 Spacer(minLength: 0)
+                copyPathButton
                 newFolderButton
                 modePicker
             }
@@ -115,6 +120,31 @@ struct BrowserToolbar: View {
             insertion: .opacity.combined(with: .scale(scale: 0.82, anchor: .leading)),
             removal: .opacity.combined(with: .scale(scale: 0.82, anchor: .trailing))
         ))
+    }
+
+    /// Copies the current directory's path, flashing a checkmark to confirm —
+    /// like the "copy URL" button at the end of a browser's address bar.
+    private var copyPathButton: some View {
+        let enabled = vm.activeDirectory != nil
+        return Button {
+            vm.copyDirectoryPath()
+            presentation.reclaimGestureFocus()
+            withAnimation(.easeOut(duration: 0.15)) { didCopyPath = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                withAnimation(.easeOut(duration: 0.2)) { didCopyPath = false }
+            }
+        } label: {
+            Image(systemName: didCopyPath ? "checkmark" : "link")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(didCopyPath ? Color.green.opacity(0.9)
+                                             : .white.opacity(enabled ? 0.7 : 0.22))
+                .frame(width: 34, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help("Copiar caminho")
     }
 
     private var newFolderButton: some View {
