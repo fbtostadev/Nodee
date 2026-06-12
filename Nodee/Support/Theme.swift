@@ -105,6 +105,11 @@ enum Theme {
         max(previewMinWidth, panelWidth * previewWidthFraction)
     }
 
+    /// Extra inset a content edge opens, at full handle proximity, so a
+    /// `PaneDivider`'s chevron (18 pt wide) lands in whitespace instead of over
+    /// content (buttonWidth/2 + breathing room). Scaled by the live reveal (0…1).
+    static let paneHandleGutter: CGFloat = 18
+
     /// Extra vertical room in the host window, below the expanded panel, so the
     /// drop shadow and the open "stretch" overshoot are never clipped.
     static let panelHostVerticalHeadroom: CGFloat = 96

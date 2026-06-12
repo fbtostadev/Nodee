@@ -15,6 +15,7 @@ import AppKit
 struct SidebarView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var appState
+    @Environment(PanelPresentation.self) private var presentation
 
     let locations: [SidebarLocation]
     let projects: [PinnedProject]
@@ -56,7 +57,13 @@ struct SidebarView: View {
             Divider().overlay(Color.white.opacity(0.08))
             content
         }
-        .frame(width: width)
+        // Content is pinned to its base width (left-aligned); the pane widens only
+        // by adding empty space on the trailing side as the collapse handle nears.
+        // The row text therefore never reflows or resizes on hover — only the empty
+        // gutter (and the whole Notch) grows to host the chevron.
+        .frame(width: width, alignment: .leading)
+        .frame(width: width + presentation.sidebarTrailingReveal * Theme.paneHandleGutter, alignment: .leading)
+        .animation(.smooth(duration: 0.35), value: presentation.sidebarTrailingReveal)
         .background(.black.opacity(0.18))
         .overlay {
             // The whole-sidebar "favorite here" border — suppressed while a
@@ -197,6 +204,9 @@ struct SidebarView: View {
                 .foregroundStyle(.white.opacity(isSelected ? 0.95 : 0.75))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // Selected rows turn semibold (wider) and can clip a name that fit
+                // when regular — scale it down slightly before truncating.
+                .minimumScaleFactor(0.82)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)

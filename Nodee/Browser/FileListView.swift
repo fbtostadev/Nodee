@@ -12,10 +12,22 @@ import SwiftUI
 
 struct FileListView: View {
     @Bindable var vm: BrowserViewModel
+    @Environment(PanelPresentation.self) private var presentation
     /// Top/bottom content insets so the list scrolls edge-to-edge under the
     /// header (toolbar + column header) and footer progressive-blur bands.
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
+
+    /// Room for the reveal-sidebar chevron on the left margin — present only while
+    /// the sidebar is collapsed (when that expand-handle exists).
+    private var leadingHandleInset: CGFloat {
+        presentation.isSidebarCollapsed ? Theme.paneHandleGutter : 0
+    }
+    /// Room for the reveal-preview chevron on the right margin — present only while
+    /// the preview is hidden but a file is selected (when that expand-handle exists).
+    private var trailingHandleInset: CGFloat {
+        (!vm.isPreviewVisible && vm.selectedFile != nil) ? Theme.paneHandleGutter : 0
+    }
 
     var body: some View {
         ZStack {
@@ -85,8 +97,14 @@ struct FileListView: View {
                         .id(row.file.url)
                     }
                 }
-                .padding(.horizontal, 6)
+                // Static gutters keyed to collapse state (not hover): reserve room
+                // for an edge expand-handle only while its pane is hidden, so rows
+                // never reflow as the cursor merely approaches a divider.
+                .padding(.leading, 6 + leadingHandleInset)
+                .padding(.trailing, 6 + trailingHandleInset)
                 .padding(.vertical, 4)
+                .animation(.smooth(duration: 0.3), value: presentation.isSidebarCollapsed)
+                .animation(.smooth(duration: 0.3), value: trailingHandleInset)
             }
             .dropDestination(for: URL.self) { urls, _ in
                 guard let dir = vm.currentDirectory else { return false }

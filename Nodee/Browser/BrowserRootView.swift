@@ -37,12 +37,13 @@ struct BrowserRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if vm.displayMode == .list, let file = vm.selectedFile, vm.isPreviewVisible {
-                PaneDivider(paneSide: .trailing, onCollapse: {
+                PaneDivider(paneSide: .trailing, gutter: .previewLeading, action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         vm.previewPanOffset = 0
                         vm.isPreviewVisible = false
                     }
                 })
+                .zIndex(1) // keep the handle aura above the preview pane
                 PreviewPane(file: file, width: Theme.previewWidth(panelWidth: panelWidth))
                     .offset(x: max(0, vm.previewPanOffset))
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -64,6 +65,19 @@ struct BrowserRootView: View {
                 .allowsHitTesting(false)
                 .transition(.opacity)
                 .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.isPreviewVisible)
+            }
+        }
+        // Edge handle to reveal the preview — chevron CTA on the right margin.
+        // Only when there's a selection to preview.
+        .overlay(alignment: .trailing) {
+            if vm.displayMode == .list, !vm.isPreviewVisible, vm.selectedFile != nil {
+                PaneDivider(paneSide: .trailing, mode: .expand, action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        vm.previewPanOffset = 0
+                        vm.isPreviewVisible = true
+                    }
+                })
+                .transition(.opacity)
             }
         }
         .background(Theme.canvasBackground)

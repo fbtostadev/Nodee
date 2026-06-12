@@ -15,6 +15,8 @@ struct PreviewPane: View {
     let file: FileNode
     let width: CGFloat
 
+    @Environment(PanelPresentation.self) private var presentation
+
     /// Cached folder listing, loaded once per file instead of re-reading disk on
     /// every body render. Only populated for folders (see .task below).
     @State private var folderChildren: [FileNode] = []
@@ -25,7 +27,12 @@ struct PreviewPane: View {
             Divider().overlay(Color.white.opacity(0.08))
             content
         }
-        .frame(width: width)
+        // Content pinned to its base width; the pane adds empty space on the leading
+        // side as the collapse handle nears (content slides right as a block, never
+        // resizing). The Notch grows to host the chevron's whitespace.
+        .frame(width: width, alignment: .leading)
+        .frame(width: width + presentation.previewLeadingReveal * Theme.paneHandleGutter, alignment: .trailing)
+        .animation(.smooth(duration: 0.35), value: presentation.previewLeadingReveal)
         .background(.black.opacity(0.18))
         .task(id: file.url) {
             // Read the disk once when the previewed file changes; skip the I/O for
