@@ -25,6 +25,8 @@
 //    breathe  → live / FSEvents sync / wait  (ice-blue, dim, continuous)
 //    shudder  → error                        (red, X flares & jitters)
 //    bloom    → pin project / created        (ice-blue, centre bursts outward)
+//    chevronLeft  → navigate back / shallower    (ice-blue, pixel < converges to tip)
+//    chevronRight → navigate into / deeper        (ice-blue, pixel > converges to tip)
 //
 //  Architecture:
 //    DotMatrixState    → high-level intent (loading / move / trash / …)
@@ -627,6 +629,95 @@ struct DotMatrixSequence: Equatable {
         frames.append(Array(repeating: 0.0, count: cells))                      // gone
         return DotMatrixSequence(frames: frames, interval: 0.085, loops: false,
                                  accentOverride: DotMatrixPalette.red)
+    }
+
+    // MARK: Navigation verbs (square grid)
+    //
+    // A pixel chevron (< or >) that confirms a two-finger navigation swipe. Unlike
+    // the rest of the vocabulary these need the square lattice — a clean V only
+    // reads on a grid — so the nav glyph is rendered with `layout: nil`. A pulse of
+    // light converges along the open arms inward to the tip, travelling in the
+    // direction of the swipe (left for back, right for deeper); the full chevron
+    // then flashes and fades. Fast and dim: confirmation, not decoration.
+
+    /// Build a chevron frame on an n×n grid. The tip sits on the centre row at the
+    /// left column (`backward`) or right column (forward); each step outward moves
+    /// one column toward the opposite edge and one row away from centre, forming a
+    /// V. `value(d)` gives the brightness at chevron-distance `d` from the tip.
+    private static func chevronFrame(_ n: Int, backward: Bool,
+                                     value: (_ distance: Int) -> Double) -> [Double] {
+        let mid = (n - 1) / 2
+        var f = Array(repeating: 0.0, count: n * n)
+        for d in 0...mid {
+            let col = backward ? d : (n - 1 - d)
+            let rows = d == 0 ? [mid] : [mid - d, mid + d]
+            let v = value(d)
+            for r in rows where r >= 0 && r < n { f[r * n + col] = v }
+        }
+        return f
+    }
+
+    /// Resting brightness of a steady (still / settled) chevron — dim enough to read
+    /// as a calm control icon, bright enough to stay legible.
+    private static let chevronRest = 0.65
+
+    /// The shared sweep: light converges from the open arms (largest distance)
+    /// inward to the tip (distance 0). `settleLit` decides the ending — a steady lit
+    /// chevron (a button at rest) or a flash that fades to dark (a one-shot glyph).
+    private static func chevronSweep(_ n: Int, backward: Bool,
+                                     settleLit: Bool) -> DotMatrixSequence {
+        let mid = (n - 1) / 2
+        var frames: [[Double]] = []
+        for head in stride(from: mid, through: 0, by: -1) {
+            frames.append(chevronFrame(n, backward: backward) { d in
+                if d == head     { return 0.95 }
+                if d == head + 1 { return 0.30 }   // trail, one step more outward
+                return 0.0
+            })
+        }
+        if settleLit {
+            frames.append(chevronFrame(n, backward: backward) { _ in 0.95 })          // arrive
+            frames.append(chevronFrame(n, backward: backward) { _ in chevronRest })   // settle lit
+        } else {
+            frames.append(chevronFrame(n, backward: backward) { _ in 0.85 })   // full flash
+            frames.append(chevronFrame(n, backward: backward) { _ in 0.35 })   // fade
+            frames.append(Array(repeating: 0.0, count: n * n))                 // off
+        }
+        return DotMatrixSequence(frames: frames, interval: 0.05, loops: false)
+    }
+
+    /// CHEVRON LEFT — a pixel `<` converges toward its left-facing tip, confirming
+    /// a *back / shallower* swipe. One-shot fading to dark. Square grid only.
+    static func chevronLeft(dimension n: Int = standardDimension) -> DotMatrixSequence {
+        chevronSweep(n, backward: true, settleLit: false)
+    }
+
+    /// CHEVRON RIGHT — a pixel `>` converges toward its right-facing tip, confirming
+    /// a *forward / deeper* swipe. One-shot fading to dark. Square grid only.
+    static func chevronRight(dimension n: Int = standardDimension) -> DotMatrixSequence {
+        chevronSweep(n, backward: false, settleLit: false)
+    }
+
+    /// CHEVRON LEFT (press) — the same converging sweep, but it lands on a steady
+    /// lit `<` and holds. For a back/forward button: tap → animate → rest lit.
+    static func chevronLeftPress(dimension n: Int = standardDimension) -> DotMatrixSequence {
+        chevronSweep(n, backward: true, settleLit: true)
+    }
+
+    /// CHEVRON RIGHT (press) — converging sweep that lands on a steady lit `>`.
+    static func chevronRightPress(dimension n: Int = standardDimension) -> DotMatrixSequence {
+        chevronSweep(n, backward: false, settleLit: true)
+    }
+
+    /// CHEVRON LEFT (still) — a single steady `<` frame, the resting state of a back
+    /// button before any interaction. Square grid only.
+    static func chevronLeftStill(dimension n: Int = standardDimension) -> DotMatrixSequence {
+        DotMatrixSequence(frames: [chevronFrame(n, backward: true) { _ in chevronRest }], loops: false)
+    }
+
+    /// CHEVRON RIGHT (still) — a single steady `>` frame, the resting forward button.
+    static func chevronRightStill(dimension n: Int = standardDimension) -> DotMatrixSequence {
+        DotMatrixSequence(frames: [chevronFrame(n, backward: false) { _ in chevronRest }], loops: false)
     }
 
     /// SHUDDER → JOLT (radial) — the rings flare outward in alarm, the grid flashes

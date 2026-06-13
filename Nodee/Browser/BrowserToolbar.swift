@@ -13,6 +13,7 @@ struct BrowserToolbar: View {
     @Bindable var vm: BrowserViewModel
     @Environment(PanelPresentation.self) private var presentation
     var topInset: CGFloat = 0
+    var navGlyphCtrl: NavGlyphController? = nil
 
     /// Which breadcrumb crumb the cursor is currently over (tracked by URL so it
     /// survives re-renders as the path mutates). Drives the per-crumb hover state.
@@ -116,8 +117,14 @@ struct BrowserToolbar: View {
 
     private var historyControls: some View {
         HStack(spacing: 2) {
-            toolbarButton("chevron.left", help: "Voltar", enabled: vm.canGoBack) { vm.goBack() }
-            toolbarButton("chevron.right", help: "Avançar", enabled: vm.canGoForward) { vm.goForward() }
+            HistoryChevronButton(backward: true, help: "Voltar", enabled: vm.canGoBack,
+                                 navGlyphCtrl: navGlyphCtrl) {
+                vm.goBack(); presentation.reclaimGestureFocus()
+            }
+            HistoryChevronButton(backward: false, help: "Avançar", enabled: vm.canGoForward,
+                                 navGlyphCtrl: navGlyphCtrl) {
+                vm.goForward(); presentation.reclaimGestureFocus()
+            }
         }
     }
 
@@ -294,6 +301,63 @@ struct BrowserToolbar: View {
     private func toolbarButton(_ symbol: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         ToolbarButtonView(symbol: symbol, help: help, enabled: enabled) {
             action(); presentation.reclaimGestureFocus()
+        }
+    }
+}
+
+// MARK: - HistoryChevronButton
+
+/// Back / forward button rendered as a pixel chevron (DotMatrixIndicator on the
+/// square grid) instead of an SF Symbol. At rest it shows a steady `<` / `>`; a
+/// tap replays the converging sweep that settles back lit. White accent to match
+/// the rest of the toolbar; dims when there's no history in that direction.
+private struct HistoryChevronButton: View {
+    let backward: Bool
+    let help: String
+    let enabled: Bool
+    var navGlyphCtrl: NavGlyphController? = nil
+    let action: () -> Void
+
+    @State private var isHovered = false
+    /// 0 = resting (still); each tap or matching swipe increments to remount + replay.
+    @State private var pressToken = 0
+
+    private var sequence: DotMatrixSequence {
+        if pressToken == 0 {
+            return backward ? .chevronLeftStill() : .chevronRightStill()
+        }
+        return backward ? .chevronLeftPress() : .chevronRightPress()
+    }
+
+    var body: some View {
+        Button {
+            guard enabled else { return }
+            pressToken += 1
+            action()
+        } label: {
+            DotMatrixIndicator(
+                state: .custom(sequence),
+                accent: .white,
+                showGlow: false,
+                extent: 13,
+                layout: nil   // chevron only reads on the square pixel grid
+            )
+            .id(pressToken)   // remount so the one-shot replays on every tap
+            .opacity(enabled ? (isHovered ? 1.0 : 0.82) : 0.3)
+            .frame(width: 34, height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(help)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .onHover { hovering in isHovered = enabled && hovering }
+        // Swipe gesture fires the same press animation as a tap: when the controller
+        // signals a swipe matching this button's direction, increment pressToken so
+        // the indicator remounts and replays the converging sweep.
+        .onChange(of: navGlyphCtrl?.glyph?.token) { _, _ in
+            guard let g = navGlyphCtrl?.glyph, g.shallower == backward else { return }
+            pressToken += 1
         }
     }
 }

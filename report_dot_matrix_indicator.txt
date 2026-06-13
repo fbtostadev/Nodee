@@ -1,40 +1,52 @@
 ================================================================================
  DotMatrixIndicator — Relatório de Implementação
- Data: 2026-06-13
+ Data: 2026-06-13 (revisado — migração para íris radial)
 ================================================================================
 
 RESUMO
 ------
 Componente SwiftUI de indicação de status baseado em Animação Orientada a Dados
-(Data-Driven Animation). Uma grade fixa 3×3 de pixels cujo comportamento visual
-é inteiramente ditado por matrizes booleanas injetadas. A mesma geometria serve
-a múltiplos estados sem alterar a view.
+(Data-Driven Animation). A geometria padrão é uma ÍRIS RADIAL — anéis concêntricos
+de pontos de luz — cujo comportamento visual é inteiramente ditado por frames de
+INTENSIDADE injetados (não por código de view). A mesma geometria serve a todo o
+vocabulário de estados sem alterar a view.
 
-Princípio: a geometria é estática; os dados são o motor de renderização.
+Princípio: a geometria é fixa; os dados (frames de intensidade, um por ponto) são
+o motor de renderização.
+
+Sacada arquitetural: o contrato data-driven (frame = [Double], engine, spring por
+pixel) é AGNÓSTICO AO LAYOUT. Só a posição dos pontos e o cálculo de intensidade
+por verbo eram acoplados à antiga grade quadrada. Por isso a migração quadrado →
+íris não tocou o motor — trocou o índice row-major por uma lista ordenada de
+pontos com geometria (point, ring, angle), e cada verbo passou a ler ring(of:)/
+outerRingIndices em vez de ring(idx,n)/perimeter(n).
 
 ================================================================================
 
-ARQUIVOS CRIADOS / MODIFICADOS
-------------------------------
+ARQUIVOS
+--------
 
-1. [NOVO] Nodee/Support/DotMatrixIndicator.swift
-   - Componente principal (~400 linhas)
-   - Contém: DotMatrixSequence, DotMatrixState, DotMatrixEngine, DotMatrixIndicator
-   - 3 SwiftUI #Preview para validação visual
+1. Nodee/Support/DotMatrixIndicator.swift
+   - Componente principal
+   - Contém: DotMatrixDot, DotMatrixLayout, DotMatrixSequence, DotMatrixState,
+     DotMatrixEngine, DotMatrixIndicator
+   - #Preview: "Verbs of Light" (9 verbos radiais), "Iris vs. Square" (padrão vs
+     fallback), "Transition" (demo interativo)
 
-2. [MODIFICADO] Nodee/Support/Theme.swift (linhas 178-196)
-   - 10 tokens de design adicionados ao enum Theme
+2. Nodee/Support/Theme.swift
+   - Tokens de design do componente (ver seção TOKENS)
 
-3. [MODIFICADO] Nodee/Support/ToastView.swift
-   - DotMatrixIndicator integrado como ícone líder na pill de toast
-   - Mapeamento semântico: error→.error, trashed→.error, copied→.success, moved→.success
+3. Nodee/Support/ToastView.swift
+   - DotMatrixIndicator como ícone líder na pill de toast
+   - Padrão de duas fases: anuncia o verbo da operação → assenta em breathe na cor
+     da operação (vivo junto com o shimmer da borda)
 
-4. [MODIFICADO] Nodee/Browser/BrowserToolbar.swift
-   - DotMatrixIndicator integrado ao botão de copiar caminho
-   - Transição: loading (enquanto shimmer varre) → success (caminho copiado) → idle (desaparece)
+4. Nodee/Browser/BrowserToolbar.swift
+   - DotMatrixIndicator no lugar do ícone "link" do botão copy-path
+   - dualOrbitRadial (loading) → dualOrbitDoneRadial (bloom verde) → volta ao link
 
-5. [MODIFICADO] DSGNConcept.md (§8 changelog)
-   - Entrada de design registrada
+5. DSGNConcept.md (§8 consolidado + §9 changelog) e CLAUDE.md
+   - Contrato de design e índice de arquitetura atualizados para a íris
 
 ================================================================================
 
@@ -42,29 +54,43 @@ ARQUITETURA DO COMPONENTE
 -------------------------
 
 ┌─────────────────────────────────────────────────────┐
+│  DotMatrixLayout (struct, Equatable)                 │
+│  - dots: [DotMatrixDot]  (point normalizado +        │
+│    ring + angle); a ORDEM é a indexação dos frames   │
+│  - standardIris = centro + 6 + 12 = 19 pontos        │
+│  - ring(of:) / outerRingIndices / maxRing /          │
+│    normalizedRingSpacing  (análogos radiais de       │
+│    ring(idx,n) / perimeter(n))                       │
+└───────────────────────┬─────────────────────────────┘
+                        │ geometria + ordem dos pontos
+┌───────────────────────▼─────────────────────────────┐
 │  DotMatrixSequence (struct, Equatable)               │
-│  - frames: [[Bool]]  (cada frame = 9 bools, 3×3)    │
-│  - interval: TimeInterval                            │
-│  - loops: Bool                                       │
-│  - accentOverride: Color?                            │
-│  - Factories estáticas: .loading, .success, .error,  │
-│    .idle                                             │
+│  - frames: [[Double]]  (cada frame = intensidades    │
+│    0…1, uma por ponto, na ordem do layout)           │
+│  - interval / loops / flashFrames / accentOverride   │
+│  - Geradores radiais: orbitRadial, dualOrbitRadial,  │
+│    convergeRadial, dualOrbitDoneRadial, liftRadial,  │
+│    cascadeRadial, dissolveRadial, breatheRadial,     │
+│    shudderRadial, bloomRadial, idleRadial            │
+│  - Verbos quadrados legados (orbit, lift, …) seguem  │
+│    para o fallback layout: nil                       │
 └───────────────────────┬─────────────────────────────┘
                         │ alimenta
 ┌───────────────────────▼─────────────────────────────┐
 │  DotMatrixState (enum, Equatable)                    │
-│  - .idle / .loading / .success / .error / .custom()  │
-│  - var sequence: DotMatrixSequence                   │
-│  - var defaultAccent: Color                          │
+│  - .idle .loading .success .error .move .copy .trash │
+│    .syncing .pinned .custom(seq)                     │
+│  - var sequence: DotMatrixSequence (→ verbo radial)  │
+│  - var semanticAccent: Color?                        │
 └───────────────────────┬─────────────────────────────┘
                         │ seleciona
 ┌───────────────────────▼─────────────────────────────┐
 │  DotMatrixEngine (@Observable, @MainActor)           │
-│  - currentFrame: [Bool]  (9 bools sendo renderizados)│
+│  - currentFrame: [Double]                            │
 │  - resolvedAccent: Color                             │
-│  - isFlashing: Bool (flash branco no success)        │
-│  - play(state:) / stop()                             │
-│  - Timer via Task.sleep para avançar frames          │
+│  - isFlashing: Bool (apex de flash branco)           │
+│  - play(state:base:) / stop()                        │
+│  - Playback via Task.sleep para avançar frames       │
 └───────────────────────┬─────────────────────────────┘
                         │ renderiza
 ┌───────────────────────▼─────────────────────────────┐
@@ -72,62 +98,109 @@ ARQUITETURA DO COMPONENTE
 │  - state: DotMatrixState                             │
 │  - accent: Color (default ice-blue)                  │
 │  - showGlow: Bool (default true)                     │
-│  - pixelSize: CGFloat (default Theme token)          │
-│  - gridMask: Set<Int> (default 0..<9, full 3×3)      │
-│  - LazyVGrid 3×3 de RoundedRectangles                │
-│  - Glow semântico via shadow                         │
+│  - extent: CGFloat (lado total; default Theme token) │
+│  - layout: DotMatrixLayout? = .standardIris          │
+│      • setado → íris: Circle por ponto via .position │
+│      • nil    → fallback quadrado: LazyVGrid 5×5     │
+│  - gridMask: Set<Int>? (só no fallback quadrado)     │
+│  - Glow semântico via shadow, respira com o pico     │
 └─────────────────────────────────────────────────────┘
+
+================================================================================
+
+GEOMETRIA DA ÍRIS (standardIris)
+--------------------------------
+
+Anel 0 (centro):  1 ponto
+Anel 1:           6 pontos  (a cada 60°, começando no topo −90°)
+Anel 2:          12 pontos  (a cada 30°, começando no topo −90°)
+Total:           19 pontos
+
+Os ângulos do anel 1 e do anel 2 alinham em spokes (0/60/120… ⊂ 0/30/60…), o que
+faz bloom/converge lerem como frentes radiais limpas. Raios distribuídos até
+outerRadius = 0.46 (abaixo de 0.5 para os pontos da borda não clipar o footprint).
+
+Diâmetro do ponto = normalizedRingSpacing · extent · 0.8  (footprint fixo:
+densificar a íris só diminui o ponto, nunca cresce o componente).
 
 ================================================================================
 
 TOKENS DE DESIGN (Theme.swift)
 ------------------------------
 
-dotMatrixPixelSize:        4pt      // Lado de cada quadrado
-dotMatrixPixelSpacing:     1pt      // Gap entre pixels adjacentes
-dotMatrixCornerRadius:     1pt      // Squircle .continuous (bem quadrado)
+dotMatrixExtent:           14pt     // Lado total do componente
 dotMatrixFrameInterval:    0.18s    // Cadência padrão (sequências override)
-dotMatrixPixelSpring:      spring(response: 0.30, dampingFraction: 0.78)
+dotMatrixPixelSpring:      spring(response: 0.26, dampingFraction: 0.80)
 dotMatrixGlowRadius:       14pt     // Halo semântico
-dotMatrixActiveOpacity:    1.0      // Pixel aceso
-dotMatrixInactiveOpacity:  0.0      // Pixel apagado (totalmente invisível)
+dotMatrixActiveOpacity:    1.0      // Ponto aceso (intensidade 1.0)
+dotMatrixTrailDecay:       0.45     // Decaimento do rastro do cometa
 
-Tamanho total do componente: ~14×14pt (3×4 + 2×1 = 14)
+dotMatrixGapRatio (0.18) / dotMatrixCornerRatio (0.30): só para o fallback
+quadrado (LazyVGrid de RoundedRectangle). Na íris os pontos são círculos.
 
 ================================================================================
 
-PADRÕES DE ANIMAÇÃO (estado atual — refinados)
-----------------------------------------------
+PALETA SEMÂNTICA (DSGNConcept §2)
+---------------------------------
 
-Grid de referência (row-major):
-  0=TL  1=TC  2=TR
-  3=ML  4=MC  5=MR
-  6=BL  7=BC  8=BR
+ice-blue  #8CCCFF  loading / move / success / syncing / pinned (accent base)
+amber     #FFC761  copy
+red       #FF6161  error / trash
+green     #73EB8F  accent TRANSIENTE de conclusão (só no beat final; ex.:
+                   dualOrbitDoneRadial). Não é um 5º accent de repouso.
 
-Perímetro (horário): 0→1→2→5→8→7→6→3
+Ordem de resolução do accent: sequence.accentOverride > state.semanticAccent >
+accent base da view.
 
-### LOADING — Cometa orbital (2 pixels, trail)
-- 8 frames, interval 0.10s, loop infinito
-- Dois pixels acesos por frame (cabeça + rastro) orbitando o perímetro
-- Efeito de streak fluido, não ponto saltando
-- Cor: ice-blue (#8CCCFF)
-- Sequência: TL+TC → TC+TR → TR+MR → MR+BR → BC+BR → BL+BC → ML+BL → TL+ML
+================================================================================
 
-### SUCCESS — Implosão convergente
-- 7 frames, interval 0.15s, one-shot
-- Cantos → anel externo completo → cardinais → centro → flash total (9px) → centro → off
-- Flash branco no penúltimo frame (isFlashing no engine)
-- Cor: ice-blue (ou amber se accentOverride)
+VOCABULÁRIO DE VERBOS (todos sobre a íris)
+------------------------------------------
 
-### ERROR — Alarme X diagonal
-- 7 frames, interval 0.13s, one-shot
-- X diagonal → off → X → flash total → X segura → centro → off
-- Flash total do grid no meio = pico de alarme
-- Cor: red (#FF6161) via accentOverride
+Quatro primitivas: ANEL EXTERNO (orbit), ANÉIS CONCÊNTRICOS (converge/bloom/
+breathe), BANDA EM Y (lineares) e JOLT RADIAL (erro).
 
-### IDLE — Escuro total
-- 1 frame, todos os 9 pixels apagados
-- Componente desaparece visualmente (opacity 0 nos inativos)
+### orbitRadial — .loading
+Cometa único com rastro decaindo circulando o anel externo. Contínuo, ice-blue.
+
+### dualOrbitRadial — copy-path
+Dois cometas a 180° no anel externo, point-symmetric pelo centro. Contínuo.
+
+### convergeRadial — .success
+Anéis colapsam do rim ao centro + flash branco (flashFrames) + assentamento.
+One-shot.
+
+### dualOrbitDoneRadial — copy-path (conclusão)
+Mesmo colapso concêntrico, recolorido VERDE para confirmar "concluído". One-shot.
+
+### bloomRadial — .pinned
+Onda irradia do centro para o rim + flash + fade. One-shot.
+
+### breatheRadial — .syncing
+Swell centro-pesado (centro brilhante, rim dim) que sobe e recede. Contínuo.
+
+### liftRadial — .move
+Banda de brilho SOBE pelo point.y de cada ponto (de baixo p/ cima), com esteira,
+pop no topo, fade. One-shot. Reads como relocação para cima.
+
+### cascadeRadial — .copy
+Cópia DESCE pelo point.y enquanto a banda-fonte (topo) permanece acesa → duas
+instâncias. One-shot, amber. A fonte persistente é a metáfora de cópia.
+
+### dissolveRadial — .trash
+Front varre top→bottom pelo point.y; o corpo abaixo afunda e some. One-shot, red.
+
+### shudderRadial — .error  (JOLT RADIAL)
+Anéis flamejam para fora → flash vermelho de alarme → jitter no rim → flamejam de
+novo → colapso ao centro → off. One-shot, red. Substitui a diagonal X do quadrado,
+que não tem análogo numa íris.
+
+### idleRadial — .idle
+Todos os pontos apagados, dimensionado à íris (não reflowa quando um verbo começa).
+
+LINEARES NUMA ÍRIS: cada ponto carrega point.y real, então "subir/descer" é uma
+banda de brilho varrendo y (primitiva band(layout, center, halfWidth)), não um
+índice de linha — as metáforas de mover/copiar/afundar sobrevivem sem grade.
 
 ================================================================================
 
@@ -135,81 +208,75 @@ INTEGRAÇÕES NO APP
 ------------------
 
 ### ToastView (ToastView.swift)
-- DotMatrixIndicator como primeiro elemento no HStack da pill
-- pixelSize: usa default do Theme (4pt)
-- showGlow: false (inline, sem halo)
-- Mapeamento semântico:
-  - toast.isError           → .error (red)
-  - context.kind == .trashed → .error (red)
-  - context.kind == .copied  → .success (amber override)
-  - context.kind == .moved   → .success (ice-blue)
-  - sem context              → .idle (invisível)
-- O accent da dot matrix é sincronizado com o accent da toast
+- DotMatrixIndicator como primeiro elemento no HStack da pill (extent: 16,
+  showGlow: false, accent sincronizado com shimmer/glow).
+- Surgimento faseado (§6): durante o slide-in da pill o indicador fica apagado/
+  encolhido; ~0.12s depois floresce (scale 0.5→1 + opacity); só então anuncia.
+- Padrão de duas fases (§8.6):
+  1. Anúncio — verbo da operação toca uma vez:
+       toast.isError              → .error  (shudder/jolt, red)
+       context.kind == .trashed   → .trash  (dissolve, red)
+       context.kind == .copied    → .copy   (cascade, amber)
+       context.kind == .moved     → .move   (lift, ice-blue)
+       sem context                → (vai direto ao breathe)
+  2. Assentamento — ~0.8s depois transita para .syncing (breathe contínuo) na cor
+     da operação, vivo pela vida inteira da toast, em lockstep com a borda.
 
-### BrowserToolbar — Copy Path (BrowserToolbar.swift)
+### BrowserToolbar — copy-path (BrowserToolbar.swift)
 - @State copyDotState: DotMatrixState = .idle
-- Ao clicar no botão de copiar:
-  1. 0s: copyDotState = .loading (cometa orbital aparece)
-  2. 0.6s: copyDotState = .success (convergência)
-  3. 2.2s: shimmer dissolve
-  4. 3.4s: copyDotState = .idle (dot matrix desaparece)
-- Transição de entrada/saída: .opacity + .scale(0.6)
-- Animation: spring(response: 0.30, dampingFraction: 0.78)
+- DotMatrixIndicator no lugar do glyph "link" (extent: 18), área 34×30.
+- Coreografia (runCopyFeedback):
+  1. .custom(.dualOrbitRadial(cycle: 0.42))  — ~0.46s, um ciclo, ice-blue
+  2. .custom(.dualOrbitDoneRadial())         — ~0.62s, bloom verde de conclusão
+  3. .idle                                    — volta ao ícone link
+- Transição entrada/saída: .opacity + .scale(0.6); spring(0.30, 0.78).
+- Complementado pelo shimmer de passagem única do breadcrumb (DSGNConcept §4.3).
 
 ================================================================================
 
 ALINHAMENTO COM DSGNConcept.md
 ------------------------------
 
-- §2 Cores semânticas: ice-blue para loading/success, red para error, amber para copied
-- §5 Glow: shadow(color: accent.opacity(0.25), radius: 14) quando showGlow=true
-- §6 Movimento: spring amortecida para transições de pixel; estado contínuo (loading)
-  usa timer linear; one-shot (success/error) completa e para
-- §4 Anti-padrão respeitado: não pisca (autoreverses rápido), os pixels acendem/apagam
-  com spring suave
+- §2 Cores semânticas: ice-blue (loading/move/success/syncing/pinned), amber
+  (copy), red (error/trash), green (conclusão transiente).
+- §5 Glow: shadow(color: accent.opacity(0.28 · pico), radius: 14) quando
+  showGlow=true; o halo RESPIRA com o pico de intensidade do grid.
+- §6 Movimento: spring por pixel para as transições de intensidade; estados
+  contínuos (orbit/breathe) em loop, one-shots (converge/lift/…) completam e param.
+- §4 Apex positivo: flashFrames estoura em branco — reservado a verbos de
+  confirmação (converge/lift/cascade/bloom); erro e trash nunca flasham branco.
 
 ================================================================================
 
-DECISÕES DE DESIGN ITERADAS
-----------------------------
+HISTÓRICO DE EVOLUÇÃO (ver DSGNConcept §9 para o detalhe)
+---------------------------------------------------------
 
-Iteração 1: Pixel 10pt, gap 2pt, corner 2pt, máscara cruz (5 pixels)
-            → Muito grande, forma limitada
-
-Iteração 2: Pixel 6pt, gap 1pt, corner 1pt, grid 3×3 completo (9 pixels)
-            → Melhor tamanho, grid completo, mas inactive ainda visível
-
-Iteração 3: Pixel 4pt, gap 1pt, inactive opacity 0.0
-            → Pixels apagados ficam invisíveis, componente compacto
-
-Iteração 4: Padrões de animação refinados
-            → Loading com cometa (2px trail), success com implosão em 7 frames,
-              error com alarme X + flash total, idle totalmente escuro
+1. Grade 3×3 booleana com máscara cruciforme (matrizes de Bool).
+2. Pixel de intensidade (frames [[Double]]) + vocabulário de "verbos de luz".
+3. Densidade variável com footprint fixo; geradores procedurais por dimensão;
+   padrão consolidado em 5×5 (standardDimension), 3×3 como fallback.
+4. ATUAL — geometria migrada para ÍRIS RADIAL (standardIris 1+6+12) como padrão
+   do app; verbos re-derivados (…Radial); shudder virou jolt radial; lineares
+   varrem point.y. Malha quadrada 5×5 sobrevive como fallback (layout: nil).
 
 ================================================================================
 
 USO DO COMPONENTE
 -----------------
 
-// Básico
+// Básico (íris radial por padrão)
 DotMatrixIndicator(state: .loading)
 
-// Sem glow (para uso inline)
-DotMatrixIndicator(state: .error, showGlow: false)
+// Sem glow (uso inline, ex.: toast)
+DotMatrixIndicator(state: .error, showGlow: false, extent: 16)
 
 // Com accent custom
-DotMatrixIndicator(state: .success, accent: Color(red: 1.00, green: 0.78, blue: 0.38))
+DotMatrixIndicator(state: .move, accent: Color(red: 0.55, green: 0.80, blue: 1.00))
 
-// Tamanho custom
-DotMatrixIndicator(state: .loading, pixelSize: 8)
+// Sequência custom radial
+DotMatrixIndicator(state: .custom(.dualOrbitRadial(cycle: 0.42)))
 
-// Sequência custom
-let custom = DotMatrixSequence(
-    frames: [[true, false, ...], [false, true, ...]],
-    interval: 0.2,
-    loops: true,
-    accentOverride: .green
-)
-DotMatrixIndicator(state: .custom(custom))
+// Fallback quadrado legado
+DotMatrixIndicator(state: .loading, layout: nil)
 
 ================================================================================

@@ -246,18 +246,24 @@ final class BrowserViewModel {
 
     /// Two-finger horizontal navigation (List surface only): step *into* the
     /// selected folder. Mirrors the rightward drill of the Columns surface.
-    func navigateDeeper() {
-        guard displayMode == .list, let file = selectedFile, file.isDirectory else { return }
+    /// Returns `true` when navigation actually happened, so callers can gate
+    /// feedback (e.g. the navigation glyph) on a real move.
+    @discardableResult
+    func navigateDeeper() -> Bool {
+        guard displayMode == .list, let file = selectedFile, file.isDirectory else { return false }
         navigate(to: file.url)
+        return true
     }
 
     /// Two-finger horizontal navigation (List surface only): step *up* to the
     /// parent directory, bounded by the access root so a swipe never escapes what
-    /// the sandbox grants.
-    func navigateShallower() {
-        guard displayMode == .list, let current = currentDirectory, let root = rootURL else { return }
-        guard current.standardizedFileURL != root.standardizedFileURL else { return }
+    /// the sandbox grants. Returns `true` when navigation actually happened.
+    @discardableResult
+    func navigateShallower() -> Bool {
+        guard displayMode == .list, let current = currentDirectory, let root = rootURL else { return false }
+        guard current.standardizedFileURL != root.standardizedFileURL else { return false }
         navigate(to: current.deletingLastPathComponent())
+        return true
     }
 
     // MARK: - Selection & disclosure
