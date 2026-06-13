@@ -69,10 +69,13 @@ struct PaneDivider: View {
     private var anchorX: CGFloat {
         let buttonHalf = buttonWidth / 2
         switch (paneSide, mode) {
-        case (.leading, .collapse):  return -buttonHalf            // juts left over the sidebar
-        case (.trailing, .collapse): return  buttonHalf            // juts right over the preview
-        case (.leading, .expand):    return -frameHalf + buttonHalf // juts inward from the left edge
-        case (.trailing, .expand):   return  frameHalf - buttonHalf // juts inward from the right edge
+        // Shift 1 pt toward the line so the button covers its full 1-pt width
+        // (previously the right/left edge landed on the line's centre, leaving
+        // half the line visible beside the button — a visible overlap artefact).
+        case (.leading, .collapse):  return -(buttonHalf - 1)       // juts left over the sidebar
+        case (.trailing, .collapse): return   buttonHalf - 1        // juts right over the preview
+        case (.leading, .expand):    return -frameHalf + buttonHalf  // juts inward from the left edge
+        case (.trailing, .expand):   return  frameHalf - buttonHalf  // juts inward from the right edge
         }
     }
 
@@ -356,3 +359,6 @@ private struct WindowAccessor: NSViewRepresentable {
         }
     }
 }
+
+// MARK: - Preview
+

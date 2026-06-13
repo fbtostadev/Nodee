@@ -30,6 +30,7 @@ struct FileRowView: View {
     var onCancelRename: () -> Void = {}
 
     @State private var shakeOffset: CGFloat = 0
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -39,6 +40,7 @@ struct FileRowView: View {
             disclosure
             Image(systemName: file.kind.symbolName)
                 .font(.system(size: 12))
+                .symbolRenderingMode(file.kind == .folder ? .hierarchical : .monochrome)
                 .foregroundStyle(isSelected ? .white : file.kind.accentColor)
                 .frame(width: 18)
 
@@ -80,8 +82,12 @@ struct FileRowView: View {
         .offset(x: shakeOffset)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.accentColor.opacity(0.85) : .clear)
+                .fill(isSelected  ? Color.accentColor.opacity(0.85)
+                      : isHovered ? .white.opacity(0.07) : .clear)
         )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(
@@ -133,6 +139,9 @@ struct FileRowView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        // Decouple the rotation spring from the layout animation so
+                        // the triangle always snaps crisply regardless of row context.
+                        .animation(.spring(response: 0.28, dampingFraction: 0.68), value: isExpanded)
                         .frame(width: 14, height: 14)
                         .contentShape(Rectangle())
                 }
