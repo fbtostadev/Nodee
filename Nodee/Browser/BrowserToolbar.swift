@@ -18,10 +18,6 @@ struct BrowserToolbar: View {
     /// survives re-renders as the path mutates). Drives the per-crumb hover state.
     @State private var hoveredCrumb: URL?
 
-    /// Briefly flips the copy-path icon to a checkmark right after a copy, the
-    /// same momentary confirmation a browser's address-bar copy button gives.
-    @State private var didCopyPath = false
-
     /// Which mode-picker button is currently hovered — drives the hover pill.
     @State private var hoveredMode: DisplayMode?
 
@@ -34,6 +30,11 @@ struct BrowserToolbar: View {
     @State private var crumbShimmerAngle: Double  = 0
     @State private var crumbShimmerOpacity: Double = 0
     @State private var crumbShimmerTask: Task<Void, Never>?
+
+    /// Dot-matrix state for the copy-path feedback: plays in place of the link
+    /// icon — a dual-comet orbit that finishes by blooming green.
+    @State private var copyDotState: DotMatrixState = .idle
+    @State private var copyFeedbackTask: Task<Void, Never>?
 
     private var crumbGlowColors: [Color] {
         let a = Color(red: 0.55, green: 0.80, blue: 1.00)
@@ -67,12 +68,24 @@ struct BrowserToolbar: View {
         // easeInOut over 3.2 s: starts slow (loading), builds momentum,
         // decelerates to rest (complete) — one unidirectional clockwise pass.
         withAnimation(.easeInOut(duration: 3.2))        { crumbShimmerAngle   = 225 + 360 }
+
+        // Dot matrix: start loading, then land on success after 0.6 s.
+        copyDotState = .loading
+
         // Begin dissolving at 2.2 s — the fade overlaps the deceleration phase
         // so the border softly "lands" as it completes rather than cutting off.
         crumbShimmerTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(2200))
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            copyDotState = .success
+
+            try? await Task.sleep(for: .milliseconds(1600))
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 1.0)) { crumbShimmerOpacity = 0 }
+
+            try? await Task.sleep(for: .milliseconds(1200))
+            guard !Task.isCancelled else { return }
+            copyDotState = .idle
         }
     }
 
@@ -188,31 +201,56 @@ struct BrowserToolbar: View {
         ))
     }
 
-    /// Copies the current directory's path, flashing a checkmark to confirm —
-    /// like the "copy URL" button at the end of a browser's address bar.
+    /// Copies the current directory's path — like the "copy URL" button at the end
+    /// of a browser's address bar. The feedback plays *in place of the icon*: the
+    /// link glyph gives way to a dual-comet loading that finishes by blooming green
+    /// to confirm, then settles back to the link.
     private var copyPathButton: some View {
         let enabled = vm.activeDirectory != nil
         return Button {
             vm.copyDirectoryPath()
             presentation.reclaimGestureFocus()
-            withAnimation(.easeOut(duration: 0.15)) { didCopyPath = true }
             fireCrumbShimmer()
-            Task {
-                try? await Task.sleep(for: .seconds(1.2))
-                withAnimation(.easeOut(duration: 0.2)) { didCopyPath = false }
-            }
+            runCopyFeedback()
         } label: {
-            Image(systemName: didCopyPath ? "checkmark" : "link")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(didCopyPath ? Color.green.opacity(0.9)
-                                             : .white.opacity(enabled ? 0.7 : 0.22))
-                .contentTransition(.symbolEffect(.replace.offUp))
-                .frame(width: 34, height: 30)
-                .contentShape(Rectangle())
+            ZStack {
+                if copyDotState == .idle {
+                    Image(systemName: "link")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(enabled ? 0.7 : 0.22))
+                        .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                } else {
+                    DotMatrixIndicator(
+                        state: copyDotState,
+                        showGlow: false,
+                        extent: 18
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                }
+            }
+            .frame(width: 34, height: 30)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .help("Copiar caminho (⌘⌥C)")
+        .animation(.spring(response: 0.30, dampingFraction: 0.78), value: copyDotState)
+    }
+
+    /// Drives the in-place copy feedback: a dual-comet orbit on the iris rim (one
+    /// quick cycle), then a green completion bloom, then back to the resting link
+    /// icon. Both halves share the `.standardIris`, so the hand-off never reflows.
+    private func runCopyFeedback() {
+        copyFeedbackTask?.cancel()
+        copyFeedbackTask = Task {
+            copyDotState = .custom(.dualOrbitRadial(cycle: 0.42))
+            try? await Task.sleep(for: .seconds(0.46))    // ~one quick cycle
+            guard !Task.isCancelled else { return }
+            copyDotState = .custom(.dualOrbitDoneRadial())
+            try? await Task.sleep(for: .seconds(0.62))    // hold the bloom
+            guard !Task.isCancelled else { return }
+            copyDotState = .idle                          // back to the link
+        }
     }
 
     private var newFolderButton: some View {

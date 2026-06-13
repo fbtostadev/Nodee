@@ -1,0 +1,215 @@
+================================================================================
+ DotMatrixIndicator — Relatório de Implementação
+ Data: 2026-06-13
+================================================================================
+
+RESUMO
+------
+Componente SwiftUI de indicação de status baseado em Animação Orientada a Dados
+(Data-Driven Animation). Uma grade fixa 3×3 de pixels cujo comportamento visual
+é inteiramente ditado por matrizes booleanas injetadas. A mesma geometria serve
+a múltiplos estados sem alterar a view.
+
+Princípio: a geometria é estática; os dados são o motor de renderização.
+
+================================================================================
+
+ARQUIVOS CRIADOS / MODIFICADOS
+------------------------------
+
+1. [NOVO] Nodee/Support/DotMatrixIndicator.swift
+   - Componente principal (~400 linhas)
+   - Contém: DotMatrixSequence, DotMatrixState, DotMatrixEngine, DotMatrixIndicator
+   - 3 SwiftUI #Preview para validação visual
+
+2. [MODIFICADO] Nodee/Support/Theme.swift (linhas 178-196)
+   - 10 tokens de design adicionados ao enum Theme
+
+3. [MODIFICADO] Nodee/Support/ToastView.swift
+   - DotMatrixIndicator integrado como ícone líder na pill de toast
+   - Mapeamento semântico: error→.error, trashed→.error, copied→.success, moved→.success
+
+4. [MODIFICADO] Nodee/Browser/BrowserToolbar.swift
+   - DotMatrixIndicator integrado ao botão de copiar caminho
+   - Transição: loading (enquanto shimmer varre) → success (caminho copiado) → idle (desaparece)
+
+5. [MODIFICADO] DSGNConcept.md (§8 changelog)
+   - Entrada de design registrada
+
+================================================================================
+
+ARQUITETURA DO COMPONENTE
+-------------------------
+
+┌─────────────────────────────────────────────────────┐
+│  DotMatrixSequence (struct, Equatable)               │
+│  - frames: [[Bool]]  (cada frame = 9 bools, 3×3)    │
+│  - interval: TimeInterval                            │
+│  - loops: Bool                                       │
+│  - accentOverride: Color?                            │
+│  - Factories estáticas: .loading, .success, .error,  │
+│    .idle                                             │
+└───────────────────────┬─────────────────────────────┘
+                        │ alimenta
+┌───────────────────────▼─────────────────────────────┐
+│  DotMatrixState (enum, Equatable)                    │
+│  - .idle / .loading / .success / .error / .custom()  │
+│  - var sequence: DotMatrixSequence                   │
+│  - var defaultAccent: Color                          │
+└───────────────────────┬─────────────────────────────┘
+                        │ seleciona
+┌───────────────────────▼─────────────────────────────┐
+│  DotMatrixEngine (@Observable, @MainActor)           │
+│  - currentFrame: [Bool]  (9 bools sendo renderizados)│
+│  - resolvedAccent: Color                             │
+│  - isFlashing: Bool (flash branco no success)        │
+│  - play(state:) / stop()                             │
+│  - Timer via Task.sleep para avançar frames          │
+└───────────────────────┬─────────────────────────────┘
+                        │ renderiza
+┌───────────────────────▼─────────────────────────────┐
+│  DotMatrixIndicator (View)                           │
+│  - state: DotMatrixState                             │
+│  - accent: Color (default ice-blue)                  │
+│  - showGlow: Bool (default true)                     │
+│  - pixelSize: CGFloat (default Theme token)          │
+│  - gridMask: Set<Int> (default 0..<9, full 3×3)      │
+│  - LazyVGrid 3×3 de RoundedRectangles                │
+│  - Glow semântico via shadow                         │
+└─────────────────────────────────────────────────────┘
+
+================================================================================
+
+TOKENS DE DESIGN (Theme.swift)
+------------------------------
+
+dotMatrixPixelSize:        4pt      // Lado de cada quadrado
+dotMatrixPixelSpacing:     1pt      // Gap entre pixels adjacentes
+dotMatrixCornerRadius:     1pt      // Squircle .continuous (bem quadrado)
+dotMatrixFrameInterval:    0.18s    // Cadência padrão (sequências override)
+dotMatrixPixelSpring:      spring(response: 0.30, dampingFraction: 0.78)
+dotMatrixGlowRadius:       14pt     // Halo semântico
+dotMatrixActiveOpacity:    1.0      // Pixel aceso
+dotMatrixInactiveOpacity:  0.0      // Pixel apagado (totalmente invisível)
+
+Tamanho total do componente: ~14×14pt (3×4 + 2×1 = 14)
+
+================================================================================
+
+PADRÕES DE ANIMAÇÃO (estado atual — refinados)
+----------------------------------------------
+
+Grid de referência (row-major):
+  0=TL  1=TC  2=TR
+  3=ML  4=MC  5=MR
+  6=BL  7=BC  8=BR
+
+Perímetro (horário): 0→1→2→5→8→7→6→3
+
+### LOADING — Cometa orbital (2 pixels, trail)
+- 8 frames, interval 0.10s, loop infinito
+- Dois pixels acesos por frame (cabeça + rastro) orbitando o perímetro
+- Efeito de streak fluido, não ponto saltando
+- Cor: ice-blue (#8CCCFF)
+- Sequência: TL+TC → TC+TR → TR+MR → MR+BR → BC+BR → BL+BC → ML+BL → TL+ML
+
+### SUCCESS — Implosão convergente
+- 7 frames, interval 0.15s, one-shot
+- Cantos → anel externo completo → cardinais → centro → flash total (9px) → centro → off
+- Flash branco no penúltimo frame (isFlashing no engine)
+- Cor: ice-blue (ou amber se accentOverride)
+
+### ERROR — Alarme X diagonal
+- 7 frames, interval 0.13s, one-shot
+- X diagonal → off → X → flash total → X segura → centro → off
+- Flash total do grid no meio = pico de alarme
+- Cor: red (#FF6161) via accentOverride
+
+### IDLE — Escuro total
+- 1 frame, todos os 9 pixels apagados
+- Componente desaparece visualmente (opacity 0 nos inativos)
+
+================================================================================
+
+INTEGRAÇÕES NO APP
+------------------
+
+### ToastView (ToastView.swift)
+- DotMatrixIndicator como primeiro elemento no HStack da pill
+- pixelSize: usa default do Theme (4pt)
+- showGlow: false (inline, sem halo)
+- Mapeamento semântico:
+  - toast.isError           → .error (red)
+  - context.kind == .trashed → .error (red)
+  - context.kind == .copied  → .success (amber override)
+  - context.kind == .moved   → .success (ice-blue)
+  - sem context              → .idle (invisível)
+- O accent da dot matrix é sincronizado com o accent da toast
+
+### BrowserToolbar — Copy Path (BrowserToolbar.swift)
+- @State copyDotState: DotMatrixState = .idle
+- Ao clicar no botão de copiar:
+  1. 0s: copyDotState = .loading (cometa orbital aparece)
+  2. 0.6s: copyDotState = .success (convergência)
+  3. 2.2s: shimmer dissolve
+  4. 3.4s: copyDotState = .idle (dot matrix desaparece)
+- Transição de entrada/saída: .opacity + .scale(0.6)
+- Animation: spring(response: 0.30, dampingFraction: 0.78)
+
+================================================================================
+
+ALINHAMENTO COM DSGNConcept.md
+------------------------------
+
+- §2 Cores semânticas: ice-blue para loading/success, red para error, amber para copied
+- §5 Glow: shadow(color: accent.opacity(0.25), radius: 14) quando showGlow=true
+- §6 Movimento: spring amortecida para transições de pixel; estado contínuo (loading)
+  usa timer linear; one-shot (success/error) completa e para
+- §4 Anti-padrão respeitado: não pisca (autoreverses rápido), os pixels acendem/apagam
+  com spring suave
+
+================================================================================
+
+DECISÕES DE DESIGN ITERADAS
+----------------------------
+
+Iteração 1: Pixel 10pt, gap 2pt, corner 2pt, máscara cruz (5 pixels)
+            → Muito grande, forma limitada
+
+Iteração 2: Pixel 6pt, gap 1pt, corner 1pt, grid 3×3 completo (9 pixels)
+            → Melhor tamanho, grid completo, mas inactive ainda visível
+
+Iteração 3: Pixel 4pt, gap 1pt, inactive opacity 0.0
+            → Pixels apagados ficam invisíveis, componente compacto
+
+Iteração 4: Padrões de animação refinados
+            → Loading com cometa (2px trail), success com implosão em 7 frames,
+              error com alarme X + flash total, idle totalmente escuro
+
+================================================================================
+
+USO DO COMPONENTE
+-----------------
+
+// Básico
+DotMatrixIndicator(state: .loading)
+
+// Sem glow (para uso inline)
+DotMatrixIndicator(state: .error, showGlow: false)
+
+// Com accent custom
+DotMatrixIndicator(state: .success, accent: Color(red: 1.00, green: 0.78, blue: 0.38))
+
+// Tamanho custom
+DotMatrixIndicator(state: .loading, pixelSize: 8)
+
+// Sequência custom
+let custom = DotMatrixSequence(
+    frames: [[true, false, ...], [false, true, ...]],
+    interval: 0.2,
+    loops: true,
+    accentOverride: .green
+)
+DotMatrixIndicator(state: .custom(custom))
+
+================================================================================

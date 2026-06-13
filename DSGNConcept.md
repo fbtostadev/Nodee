@@ -274,15 +274,145 @@ Checklist ao desenhar qualquer superfície/efeito novo:
    sem flicker, sem estrobo.
 6. **Densidade e tipografia:** SF 10–12pt, branco em opacidades graduadas para
    hierarquia antes de recorrer a mais cor.
-7. **Documente aqui.** Toda variante nova de shimmer/glow/superfície entra no §8
-   com sua data e seu propósito. A linguagem só permanece coerente se for escrita.
+7. **Documente aqui.** Toda variante nova de shimmer/glow/superfície entra no §9
+   (changelog) com sua data e seu propósito. A linguagem só permanece coerente se
+   for escrita. Componentes com vocabulário próprio ganham uma seção de referência
+   consolidada (ver §8, DotMatrixIndicator).
 
 ---
 
-## 8. Evolução / changelog de design
+## 8. DotMatrixIndicator — indicador de status data-driven
+
+> Referência **consolidada** do componente (estado atual). O §9 (changelog) guarda
+> o histórico de como chegamos aqui; esta seção é a fonte autoritativa de **o que
+> ele é hoje**. Fonte: `DotMatrixIndicator.swift`.
+>
+> Pequena **íris de luz** (anéis concêntricos de pontos — `standardIris`: centro
+> + 6 + 12 = 19 pontos) cujo comportamento é inteiramente ditado por dados. A
+> geometria é fixa; os dados (frames de intensidade, um por ponto) são o motor. A
+> mesma view vira spinner, confirmação ou alarme — sem mudar código de view. A
+> **malha quadrada** 5×5 sobrevive como fallback legado (`layout: nil`).
+
+### 8.1 Pixel de intensidade (o fundamento)
+
+Cada pixel carrega um **brilho 0…1**, não um booleano on/off. Luz binária só
+pisca; intensidade *flui* — um cometa tem cabeça 1.0 e rastro decaindo
+(1.0 → 0.45 → 0.20). Poucos frames + a spring por pixel (`dotMatrixPixelSpring`)
+tecem movimento contínuo. É o que torna o componente "tela de luz", não "LED
+piscando". Em malha densa, intervalo curto + spring fundem os passos num arco
+contínuo.
+
+### 8.2 Arquitetura
+
+- **`DotMatrixSequence`** — filmstrip de frames de intensidade (`[[Double]]`) +
+  `interval`, `loops`, `flashFrames` (apex branco), `accentOverride`. Init de
+  conveniência `boolFrames:` para máscaras pontuais. As animações são **geradores
+  procedurais por dimensão** (8.3), não floats hand-tuned.
+- **`DotMatrixState`** — intenção de alto nível: `.idle .loading .success .error
+  .move .copy .trash .syncing .pinned .custom(seq)`. Cada caso mapeia para um
+  gerador; `.custom` aceita sequência arbitrária.
+- **`DotMatrixEngine`** (`@Observable @MainActor`) — playback por timer
+  (`Task.sleep`): avança `currentFrame`, resolve o accent, marca `isFlashing` nos
+  `flashFrames`.
+- **`DotMatrixLayout`** — a geometria radial: lista ordenada de `DotMatrixDot`
+  (`point` normalizado + `ring` + `angle`). A ordem dos pontos é a indexação dos
+  frames (substitui o row-major quadrado). `standardIris` = centro + 6 + 12.
+  Helpers `ring(of:)`, `outerRingIndices`, `normalizedRingSpacing` — os análogos
+  radiais de `ring(idx,n)`/`perimeter(n)`.
+- **`DotMatrixIndicator`** (View) — por padrão posiciona os pontos da íris via
+  `.position` (`Circle` por ponto); `layout: nil` cai no `LazyVGrid` quadrado
+  legado. Footprint fixado por `extent` (densificar só diminui o ponto). Glow
+  semântico que **respira** com o pico de intensidade.
+
+### 8.3 Vocabulário de verbos (o léxico de movimento)
+
+Cada estado é um *verbo de luz* cuja **forma do movimento é a semântica**. Todos
+procedurais sobre a íris (sufixo `…Radial` no código). Quatro primitivas: **anel
+externo** (orbit), **anéis concêntricos** (converge/bloom/breathe), **banda em y**
+(os lineares — cada ponto tem `point.y` real, então "subir/descer" é uma faixa de
+brilho varrendo y, não um índice de linha) e o **jolt radial** (erro):
+
+| Verbo | Estado / uso | Primitiva | Forma | Cor |
+|---|---|---|---|---|
+| `orbitRadial` | `.loading` | anel externo | cometa único c/ rastro | ice-blue |
+| `dualOrbitRadial` | copy-path | anel externo | 2 cometas a 180° (point-symmetric) | ice-blue |
+| `convergeRadial` | `.success` | anéis | rim → centro + flash branco | accent |
+| `dualOrbitDoneRadial` | copy-path | anéis | colapso + bloom **verde** | green |
+| `liftRadial` | `.move` | banda em y | banda sobe com esteira | ice-blue |
+| `cascadeRadial` | `.copy` | banda em y | cópia desce, fonte fica acesa | amber |
+| `dissolveRadial` | `.trash` | banda em y | front varre p/ baixo, afunda | red |
+| `breatheRadial` | `.syncing` | anéis | swell do centro, contínuo | base |
+| `shudderRadial` | `.error` | jolt radial | anéis flamejam + jitter + flash | red |
+| `bloomRadial` | `.pinned` | anéis | centro explode pra fora | ice-blue |
+
+### 8.4 Densidade — padrão único, footprint fixo
+
+- **`DotMatrixLayout.standardIris`** (centro + 6 + 12 = 19 pontos) rege o app
+  inteiro. A **malha quadrada 5×5** (`standardDimension`) é fallback legado, só
+  para chamadas com `layout: nil` — não troca animada.
+- **`extent`** fixa o lado total — densificar só diminui o ponto, nunca cresce o
+  componente.
+- **Layout é constante por indicador, não algo a transicionar.** Trocar geometria
+  no meio da vida reflowa e fica feio; loading e conclusão de um mesmo indicador
+  partilham uma única íris (ex.: copy-path `dualOrbitRadial` → `dualOrbitDoneRadial`).
+
+### 8.5 Cor & flash
+
+- Accent resolvido na ordem **`sequence.accentOverride` > `state.semanticAccent` >
+  `accent` base da view**. Verbos neutros (loading/move/success/syncing/pinned/
+  breathe) herdam o base; copy = amber, trash/error = red têm cor própria.
+- **`flashFrames`** — frames que estouram em **branco** (apex positivo, §4).
+  Reservado a verbos de confirmação (converge/lift/cascade/bloom); erro e trash
+  nunca flasham branco.
+- **`DotMatrixPalette.green` (#73EB8F)** — accent **transiente de conclusão**, não
+  um 5º accent de repouso (§2). Só no beat final de uma animação (`dualOrbitDone`).
+
+### 8.6 Padrão de duas fases (liveness)
+
+Para um indicador que precisa **continuar vivo** depois de anunciar:
+
+1. **Anúncio** — o verbo semântico toca uma vez (one-shot).
+2. **Assentamento** — transita para um estado contínuo (`breathe` na toast) ou
+   volta ao repouso (ícone `link` no copy-path).
+
+Na toast isso casa com o shimmer da borda que respira perpetuamente (§4.2): o
+indicador anuncia → respira na cor da operação, em lockstep com borda e glow
+(§5.1, mesmo tom). **Surgimento faseado** (§6, forma primeiro): durante o slide-in
+da pill o indicador fica apagado; ao a pill assentar ele **floresce** (scale +
+opacity) e só então anuncia — a luz "acorda com" a toast, não chega pronta.
+
+### 8.7 Integrações
+
+- **`ToastView`** — verbo por operação (`moved→move`, `copied→copy`,
+  `trashed→trash`, erro → error) → `breathe`. `extent: 16`, `showGlow: false`,
+  accent sincronizado com shimmer/glow.
+- **`BrowserToolbar`** (copy-path) — **no lugar** do ícone `link`: `dualOrbitRadial`
+  (íris, ciclo 0.42s) → `dualOrbitDoneRadial` (bloom verde) → volta ao `link`.
+  `extent: 18`. Complementado pelo shimmer de passagem única do breadcrumb (§4.3).
+
+### 8.8 Tokens (`Theme`)
+
+`dotMatrixExtent` (14), `dotMatrixFrameInterval` (0.18), `dotMatrixPixelSpring`
+(response 0.26, damping 0.80), `dotMatrixGlowRadius` (14), `dotMatrixActiveOpacity`
+(1.0), `dotMatrixTrailDecay` (0.45). O diâmetro do ponto na íris deriva de
+`normalizedRingSpacing · extent · 0.8`. `dotMatrixGapRatio`/`dotMatrixCornerRatio`
+valem só para o fallback quadrado.
+
+### 8.9 Como adicionar um estado futuro
+
+Novo status = nova sequência **sem tocar a view**: prefira um gerador procedural
+(escala por dimensão) ou use `.custom(DotMatrixSequence(...))`. Se o indicador
+precisa viver após anunciar, aplique o padrão de duas fases (8.6). Cor: tire do
+§2; se nenhum papel serve, questione se é uma classe de operação genuinamente nova
+antes de criar um accent.
+
+---
+
+## 9. Evolução / changelog de design
 
 > Registre aqui cada decisão estética relevante — o que mudou, por quê, e onde
-> vive no código. Converta datas relativas em absolutas.
+> vive no código. Converta datas relativas em absolutas. As entradas de
+> DotMatrix abaixo são **histórico**; o estado atual consolidado vive no §8.
 
 - **2026-06-12 — Documento criado.** Formalização da linguagem visual a partir do
   estado atual do MVP. Pilar: **shimmer + glow das ToastNotifications**
@@ -291,4 +421,132 @@ Checklist ao desenhar qualquer superfície/efeito novo:
   Precedente de glow de estado ativo no canvas arquivado
   (`FileNodeView.orbitalGlow`). Vocabulário semântico de cor (ice-blue / amber /
   red) consolidado neste doc; candidato a migrar para `Theme.swift`.
+- **2026-06-13 — DotMatrixIndicator.** Componente de indicação de status baseado
+  em Animação Orientada a Dados: grade 3×3 com máscara cruciforme configurável.
+  A geometria é estática (pixels fixos); os dados (matrizes de booleans) ditam
+  o comportamento. Estados pré-definidos: `loading` (rotação orbital, ice-blue),
+  `success` (convergência + flash branco), `error` (pulso em X, red), `idle`.
+  Spring por pixel (`response: 0.30, damping: 0.78`) dá vida sem bounce
+  exagerado. Glow semântico segue §5. Aceita sequências custom para estados
+  futuros sem tocar na view. Fonte: `DotMatrixIndicator.swift`.
+- **2026-06-13 — DotMatrix: pixel de intensidade + verbos de luz.** Revisão do
+  modelo de animação do `DotMatrixIndicator`. Os frames deixaram de ser booleanos
+  (`[[Bool]]`, aceso/apagado) e passaram a carregar **intensidade por pixel**
+  (`[[Double]]`, brilho 0…1). Motivo: luz binária só pisca; intensidade *flui* —
+  um cometa ganha rastro decaindo (head 1.0 → 0.45 → 0.20), e a spring por pixel
+  tece poucos frames em movimento contínuo. Isso transforma o componente de "LEDs
+  piscando" em "tela de luz".
+  Sobre essa base nasce um **vocabulário de movimento** — cada estado é um *verbo
+  de luz* com forma própria, e a forma do movimento **é** semântica (sobe = mover,
+  cai = copiar/descartar). Mapa para as operações do app e o accent do §2:
+  `orbit` (loading/scan · ice-blue), `converge` (success · accent, flash branco),
+  `lift` (mover · ice-blue, luz sobe com esteira), `cascade` (copiar/duplicar ·
+  amber, fonte fica acesa enquanto a cópia desce → duas instâncias), `dissolve`
+  (Lixeira · red, afunda e some por baixo), `breathe` (live/FSEvents/aguardando ·
+  ice-blue dim, swell contínuo do centro), `shudder` (erro · red, X flameja e
+  treme), `bloom` (fixar projeto/criado · ice-blue, centro explode pra fora).
+  Flash branco generalizado via `flashFrames: Set<Int>` na sequência (apex
+  positivo; reservado a verbos de confirmação, não a erro/trash). Glow do §5 agora
+  **respira** — opacidade do halo modulada pelo pico de intensidade do grid.
+  O `ToastView` passou a rotear `moved → .move`, `copied → .copy`,
+  `trashed → .trash` (antes tudo caía em `.success`/`.error`), então cada toast
+  conta a operação que aconteceu, não só "deu certo". API da view inalterada;
+  `DotMatrixSequence` ganhou init de conveniência `boolFrames:` para máscaras
+  pontuais. Fonte: `DotMatrixIndicator.swift`, `Theme.swift`, `ToastView.swift`.
+- **2026-06-13 — Copy-path: loading órbita-dupla in-place + conclusão verde.**
+  O feedback de copiar caminho saiu de "indicador ao lado do botão" para tocar
+  **no lugar do ícone**: o glyph `link` cede o espaço (34×30) ao `DotMatrixIndicator`
+  (`pixelSize: 5`) e volta ao fim. O movimento é **simétrico e cíclico** —
+  `dualOrbit`: dois cometas a 180° no perímetro (na malha 3×3, offset +4 cai na
+  diagonal oposta, então o par é point-symmetric pelo centro). Coreografia:
+  `dualOrbit` (~0.72s, um ciclo, ice-blue) → `dualOrbitDone` (cometas implodem ao
+  centro e **florescem em verde**, ~1.0s) → `idle`. A mudança de cor na conclusão
+  é deliberada: o verde sinaliza "concluído" sem precisar de um glyph. Novo token
+  `DotMatrixPalette.green` (#73EB8F) — accent **transiente de conclusão**, não um
+  quinto accent semântico para estados em repouso (§2); reservado ao beat final de
+  uma animação. Candidato a formalizar se "concluído" virar classe recorrente.
+  O shimmer de passagem única do breadcrumb (§4.3) foi mantido — complementa,
+  envolvendo o caminho inteiro enquanto o botão confirma localmente. Fonte:
+  `DotMatrixIndicator.swift` (`dualOrbit`/`dualOrbitDone`), `BrowserToolbar.swift`.
+- **2026-06-13 — DotMatrix: densidade variável com footprint fixo + ritmo mais
+  rápido.** O componente deixou de ser hardcoded em 3×3 e passou a ser
+  **agnóstico à dimensão**: a malha (3×3, 5×5, 7×7…) é definida pela sequência que
+  toca, e a view deriva a dimensão de `√(nº de células)` do frame atual. O tamanho
+  é fixado por `extent` (lado total constante) — pixel e gap são derivados dele,
+  então **densificar só diminui o pixel, nunca aumenta o componente**. Em malha
+  densa, o intervalo curto + a spring por pixel fundem os passos num **arco de luz
+  contínuo** (em vez de pontos discretos) — quanto mais densa, mais "tela" e menos
+  "LED". `dualOrbit`/`dualOrbitDone` viraram **geradores por dimensão**
+  (`dualOrbit(dimension:cycle:)`, `dualOrbitDone(dimension:)`): perímetro e colapso
+  concêntrico calculados para qualquer n. O copy-path agora usa 5×5 com ciclo de
+  0.42s (loading ~0.46s → bloom verde ~0.62s ≈ 1.1s total, antes ~1.7s). API da
+  view trocou `pixelSize` por `extent`; `gridMask` virou opcional (`nil` = malha
+  inteira). Tokens novos no `Theme`: `dotMatrixExtent`, `dotMatrixGapRatio`,
+  `dotMatrixCornerRatio`. Fonte: `DotMatrixIndicator.swift`, `Theme.swift`,
+  `BrowserToolbar.swift`.
+- **2026-06-13 — Densidade fixa por indicador: 5×5 padrão, 3×3 fallback.**
+  Mudar de densidade no meio da vida de um indicador reflowa o `LazyVGrid` e fica
+  feio — então densidade deixou de ser algo a *transicionar* e virou uma constante
+  por indicador. **5×5 é o padrão** (default `dimension: 5` em `dualOrbit`/
+  `dualOrbitDone`); 3×3 é fallback de compilação, não troca animada ao vivo. No
+  copy-path, uma única fonte de verdade (`copyDotDensity`) alimenta loading e
+  conclusão, garantindo que o hand-off `dualOrbit → dualOrbitDone` nunca cruze
+  dimensões. Fonte: `DotMatrixIndicator.swift`, `BrowserToolbar.swift`.
+- **2026-06-13 — Vocabulário inteiro em densidade única (`standardDimension = 5`).**
+  Antes só o copy-path era 5×5; os verbos semânticos (orbit, converge, lift,
+  cascade, dissolve, breathe, shudder, bloom, idle) eram 3×3 hand-authored — duas
+  densidades convivendo no app (ex.: o ToastView mostrava 3×3). Agora **todos os
+  verbos são geradores procedurais por dimensão**, com default `standardDimension`
+  (5×5) — uma constante única que rege a malha do componente. As 8 animações foram
+  reconstruídas a partir de 4 primitivas que escalam para qualquer n: **perímetro**
+  (orbit/dualOrbit), **anéis concêntricos** (converge/bloom/breathe/dualOrbitDone),
+  **linhas** (lift/cascade/dissolve) e a **diagonal X** (shudder). Benefício duplo:
+  consistência visual (uma densidade no app inteiro, sem hand-off cruzando malhas)
+  e manutenção (motion descrito por regra, não por 25 floats hand-tuned). 3×3 segue
+  acessível como fallback explícito (`dimension: 3`). O indicador do ToastView subiu
+  para `extent: 16` para o 5×5 respirar. Fonte: `DotMatrixIndicator.swift`,
+  `ToastView.swift`, `BrowserToolbar.swift`.
+- **2026-06-13 — Conformidade de liveness na ToastNotification.** O indicador da
+  toast tocava o verbo **one-shot** e morria num frame apagado — deixando um vão
+  escuro ao lado do texto enquanto a borda continuava respirando luz para sempre
+  (§4.2). Gap de conformidade: a toast é um objeto vivo, mas seu indicador líder
+  apagava. Correção em **duas fases** (mesma gramática do copy-path): o verbo
+  **anuncia** a operação uma vez (move/copy/trash/error → lift/cascade/dissolve/
+  shudder), e após ~0.8s o indicador **assenta num `breathe` contínuo na cor da
+  operação** — vivo pela vida inteira da toast, em lockstep com o shimmer da borda.
+  Mensagens simples (sem contexto) vão direto ao breathe em ice-blue. Como o
+  breathe não tem `accentOverride`, ele herda o accent semântico da toast, então
+  indicador, shimmer e glow respiram **o mesmo tom** (§5.1). Fonte:
+  `ToastView.swift`.
+- **2026-06-13 — Surgimento faseado do indicador na toast.** O `onAppear` da toast
+  disparava o verbo no instante da inserção, então ele rodava **durante** o
+  slide-in da pill (mascarado pelo fade) e já tinha acabado quando ela assentava —
+  lia como "indicador já vem parado". Correção via revelação faseada (§6): durante
+  o slide o indicador fica apagado/encolhido (`dotAppeared = false`); ~0.12s depois,
+  conforme a pill assenta, ele **floresce** (`scale 0.5→1` + opacity, spring
+  response 0.36); só então (~0.30s) o verbo anuncia. A luz "acorda com" a toast.
+  Fonte: `ToastView.swift`.
+- **2026-06-13 — §8 consolidado.** Referência do `DotMatrixIndicator` reunida numa
+  seção própria (estado atual autoritativo), já que as entradas acima são
+  cronológicas e parcialmente superseded (3×3, `boolFrames`, `pixelSize` mudaram).
+  Changelog renumerado para §9.
+- **2026-06-13 — DotMatrix: malha quadrada → íris radial (padrão do app).** A
+  geometria saiu da grade quadrada para uma **íris concêntrica** de pontos
+  (`DotMatrixLayout.standardIris`: centro + 6 + 12 = 19). Motivação: estética mais
+  orgânica e fiel ao espírito "tela de luz" — e metade do vocabulário (orbit,
+  converge, bloom, breathe) já era radial por natureza, então fica *melhor* na
+  íris. A sacada arquitetural: o contrato data-driven (frame = `[Double]`, engine,
+  spring por pixel) é **agnóstico ao layout** — só a posição dos pontos e o cálculo
+  de intensidade por verbo estavam acoplados ao quadrado. Trocou-se o índice
+  row-major por uma lista ordenada de `DotMatrixDot` (`point`/`ring`/`angle`); cada
+  verbo virou `…Radial`, lendo `ring(of:)`/`outerRingIndices` em vez de
+  `ring(idx,n)`/`perimeter(n)`. Os verbos lineares (lift/cascade/dissolve)
+  sobrevivem porque cada ponto tem `point.y` real → "subir/descer" é uma **banda de
+  brilho varrendo y**, não um índice de linha. O `shudder` (sem diagonal numa
+  íris) virou **jolt radial**: anéis flamejam pra fora + jitter + flash vermelho +
+  colapso ao centro. A íris é o **default** (`layout: .standardIris`); a malha 5×5
+  sobrevive como fallback legado (`layout: nil`). Consumidores (`ToastView`,
+  `BrowserToolbar`) inalterados na API — só o copy-path trocou os customs para
+  `dualOrbitRadial`/`dualOrbitDoneRadial`. Fonte: `DotMatrixIndicator.swift`,
+  `BrowserToolbar.swift`.
 ```

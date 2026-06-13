@@ -174,4 +174,32 @@ enum Theme {
     static let footerBlurHeight: CGFloat = 80
     /// Blur radius at the very bottom edge (ramps from 0 at the top of the band).
     static let progressiveBlurMaxRadius: CGFloat = 18
+
+    // DotMatrixIndicator — data-driven pixel grid for system status feedback.
+    // A fixed 3×3 grid of squares whose per-pixel *intensity* (0…1 brightness) is
+    // driven by injected float matrices. Same geometry, many behaviours — each a
+    // "verb of light" (orbit, converge, lift, cascade, dissolve, breathe, …).
+    // Intensity (not boolean on/off) is what lets the light flow rather than blink.
+    /// Total side of the component — held constant across grid densities, so a
+    /// denser grid (5×5, 7×7) just yields smaller pixels, not a bigger component.
+    static let dotMatrixExtent: CGFloat = 14
+    /// Gap between adjacent pixels, as a fraction of a pixel's side.
+    static let dotMatrixGapRatio: CGFloat = 0.18
+    /// Corner radius of each pixel square, as a fraction of its side (.continuous).
+    static let dotMatrixCornerRatio: CGFloat = 0.30
+    /// Side length of each pixel square (legacy 3×3 default; sizing now derives
+    /// the pixel from `dotMatrixExtent` ÷ grid dimension).
+    static let dotMatrixPixelSize: CGFloat = 4
+    /// Duration of each animation frame in a sequence (sequences usually override).
+    static let dotMatrixFrameInterval: TimeInterval = 0.18
+    /// Spring for per-pixel intensity transitions — the tween that makes discrete
+    /// frames read as continuous flow. Snappy, minimal overshoot.
+    static let dotMatrixPixelSpring: Animation = .spring(response: 0.26, dampingFraction: 0.80)
+    /// Glow radius behind the grid, colored by the semantic accent. The halo's
+    /// opacity is modulated by the grid's peak intensity, so it breathes.
+    static let dotMatrixGlowRadius: CGFloat = 14
+    /// Peak opacity of a fully-lit (intensity 1.0) pixel.
+    static let dotMatrixActiveOpacity: Double = 1.0
+    /// Trail decay per cell for comet-style motion (head 1.0 → 0.45 → 0.20 → …).
+    static let dotMatrixTrailDecay: Double = 0.45
 }
