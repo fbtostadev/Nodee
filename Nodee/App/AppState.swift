@@ -123,9 +123,10 @@ final class AppState {
     func beginAccess(_ project: PinnedProject) -> URL? {
         guard let resolved = SecurityScopedBookmark.resolve(project.bookmark) else { return nil }
         if accessedRoots.contains(resolved.url) { return resolved.url }
-        if resolved.url.startAccessingSecurityScopedResource() {
-            accessedRoots.insert(resolved.url)
-        }
+        // Only hand back a URL we actually hold a live scope on. A failed start
+        // would otherwise let navigation proceed against an inaccessible root.
+        guard resolved.url.startAccessingSecurityScopedResource() else { return nil }
+        accessedRoots.insert(resolved.url)
         return resolved.url
     }
 
