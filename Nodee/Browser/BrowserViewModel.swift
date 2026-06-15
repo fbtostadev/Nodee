@@ -742,6 +742,9 @@ final class BrowserViewModel {
         }
         expanded = Set(expanded.map(remap))
         columnPath = columnPath.map(remap)
+        // The back/forward stack also holds URLs that may live under the renamed
+        // folder; remapping keeps navigation history pointing at live paths.
+        history = history.map(remap)
         if let current = currentDirectory { currentDirectory = remap(current) }
     }
 

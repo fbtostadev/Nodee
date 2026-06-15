@@ -36,8 +36,13 @@ struct PreviewPane: View {
         .background(.black.opacity(0.18))
         .task(id: file.url) {
             // Read the disk once when the previewed file changes; skip the I/O for
-            // non-folders, which never use the cached listing.
-            folderChildren = file.isDirectory ? FileSystemService.children(of: file.url) : []
+            // non-folders, which never use the cached listing. Off the main actor so
+            // a large folder's contentsOfDirectory scan never stalls the panel.
+            guard file.isDirectory else { folderChildren = []; return }
+            let url = file.url
+            folderChildren = await Task.detached(priority: .utility) {
+                FileSystemService.children(of: url)
+            }.value
         }
     }
 
