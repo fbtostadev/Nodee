@@ -718,7 +718,9 @@ final class BrowserViewModel {
         return 0 // parent is the root
     }
 
-    private func prunedColumnPath() -> [URL] {
+    // `internal` (not `private`) so reconciliation logic can be unit-tested via
+    // `@testable import Nodee`. No behavior change; still effectively module-private.
+    func prunedColumnPath() -> [URL] {
         var pruned: [URL] = []
         for url in columnPath {
             guard FileSystemService.exists(url) else { break }
@@ -729,7 +731,9 @@ final class BrowserViewModel {
 
     /// After a rename/move, rewrite expanded/columnPath/currentDirectory entries
     /// that lived under the old URL so open folders stay open.
-    private func remapPaths(from old: URL, to new: URL) {
+    // `internal` (not `private`) so reconciliation logic can be unit-tested via
+    // `@testable import Nodee`. No behavior change; still effectively module-private.
+    func remapPaths(from old: URL, to new: URL) {
         let oldPath = old.standardizedFileURL.path
         func remap(_ url: URL) -> URL {
             let path = url.standardizedFileURL.path
@@ -765,7 +769,9 @@ final class BrowserViewModel {
 
     /// The drill chain (each entry backs one column) from `root` down to `url`,
     /// so jumping to a nested Location lands Columns on the right path.
-    private func columnPath(from root: URL, to url: URL) -> [URL] {
+    // `internal` (not `private`) so reconciliation logic can be unit-tested via
+    // `@testable import Nodee`. No behavior change; still effectively module-private.
+    func columnPath(from root: URL, to url: URL) -> [URL] {
         let rootComps = root.standardizedFileURL.pathComponents
         let urlComps = url.standardizedFileURL.pathComponents
         guard urlComps.count > rootComps.count,
