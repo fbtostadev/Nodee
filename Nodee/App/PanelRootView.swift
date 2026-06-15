@@ -285,7 +285,7 @@ struct PanelRootView: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvasBackground)
+        .background(Theme.panelBackground)
     }
 
     // MARK: - Actions

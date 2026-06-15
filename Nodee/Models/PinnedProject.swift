@@ -12,7 +12,7 @@ import SwiftData
 
 @Model
 final class PinnedProject {
-    /// Stable identity, also used to key canvas layout (`NodeLayout`).
+    /// Stable identity for the pinned project.
     var id: UUID
     var name: String
     /// Security-scoped bookmark of the pinned folder. Resolved at runtime.

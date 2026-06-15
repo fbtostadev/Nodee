@@ -86,7 +86,7 @@ struct BrowserRootView: View {
                 .transition(.opacity)
             }
         }
-        .background(Theme.canvasBackground)
+        .background(Theme.panelBackground)
         .onAppear {
             installKeyMonitor()
 
