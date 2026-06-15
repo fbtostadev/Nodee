@@ -31,18 +31,25 @@ struct BrowserRootView: View {
     @State private var previewGestureMonitor = ZoneGestureMonitor()
     @State private var navGestureMonitor = ZoneGestureMonitor()
 
+    // Transient confirmation glyph for the (otherwise "blind") two-finger navigation
+    // swipe. Stored as an @Observable class so the NSEvent-monitor closure can mutate
+    // it via a real reference — @State on a value-type self captured in an onAppear
+    // closure is unreliable in SwiftUI 6 (mutations don't always trigger re-renders).
+    @State private var navGlyphCtrl = NavGlyphController()
+
     var body: some View {
         HStack(spacing: 0) {
             browserColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if vm.displayMode == .list, let file = vm.selectedFile, vm.isPreviewVisible {
-                PaneDivider(paneSide: .trailing, onCollapse: {
+                PaneDivider(paneSide: .trailing, gutter: .previewLeading, action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         vm.previewPanOffset = 0
                         vm.isPreviewVisible = false
                     }
                 })
+                .zIndex(1) // keep the handle aura above the preview pane
                 PreviewPane(file: file, width: Theme.previewWidth(panelWidth: panelWidth))
                     .offset(x: max(0, vm.previewPanOffset))
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -66,7 +73,20 @@ struct BrowserRootView: View {
                 .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.isPreviewVisible)
             }
         }
-        .background(Theme.canvasBackground)
+        // Edge handle to reveal the preview — chevron CTA on the right margin.
+        // Only when there's a selection to preview.
+        .overlay(alignment: .trailing) {
+            if vm.displayMode == .list, !vm.isPreviewVisible, vm.selectedFile != nil {
+                PaneDivider(paneSide: .trailing, mode: .expand, action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        vm.previewPanOffset = 0
+                        vm.isPreviewVisible = true
+                    }
+                })
+                .transition(.opacity)
+            }
+        }
+        .background(Theme.panelBackground)
         .onAppear {
             installKeyMonitor()
 
@@ -122,7 +142,8 @@ struct BrowserRootView: View {
             }
             navGestureMonitor.onCommit = { swipeRight in
                 // Left drills into the selected folder; right climbs to the parent.
-                swipeRight ? vm.navigateShallower() : vm.navigateDeeper()
+                let moved = swipeRight ? vm.navigateShallower() : vm.navigateDeeper()
+                if moved { navGlyphCtrl.show(shallower: swipeRight) }
             }
             navGestureMonitor.start()
         }
@@ -131,11 +152,12 @@ struct BrowserRootView: View {
             sidebarGestureMonitor.stop()
             previewGestureMonitor.stop()
             navGestureMonitor.stop()
+            navGlyphCtrl.cancel()
             presentation.setPreviewVisible = nil
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.selectedFile?.id)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.displayMode)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.isPreviewVisible)
+        .animation(Theme.contentSpring, value: vm.selectedFile?.id)
+        .animation(Theme.contentSpring, value: vm.displayMode)
+        .animation(Theme.contentSpring, value: vm.isPreviewVisible)
     }
 
     /// Fixed heights that make up the header band above the scrolling content.
@@ -156,7 +178,7 @@ struct BrowserRootView: View {
             // Header: a solid absolute-black bar (toolbar + column header). Content
             // scrolls up and vanishes behind it — pure #000000, no grey material.
             VStack(spacing: 0) {
-                BrowserToolbar(vm: vm, topInset: notchInset)
+                BrowserToolbar(vm: vm, topInset: notchInset, navGlyphCtrl: navGlyphCtrl)
                 if listMode {
                     FileColumnsHeader()
                     Divider().overlay(Color.white.opacity(0.08))
@@ -168,8 +190,10 @@ struct BrowserRootView: View {
             // above the grabber (the grabber is drawn on top, by PanelRootView).
             ProgressiveBlur(height: footerHeight)
                 .frame(maxHeight: .infinity, alignment: .bottom)
+
         }
     }
+
 
     @ViewBuilder
     private func surface(topInset: CGFloat, bottomInset: CGFloat) -> some View {
@@ -233,5 +257,42 @@ struct BrowserRootView: View {
         case "n": vm.newFile(); return true
         default: return false
         }
+    }
+}
+
+// MARK: - NavGlyphController
+
+/// Drives the transient pixel-chevron that confirms a two-finger navigation swipe.
+/// Stored as @Observable so NSEvent-monitor closures can mutate it via a real
+/// reference — unlike @State on a captured struct copy, Observable mutations always
+/// reach SwiftUI's observation graph and trigger a re-render.
+@Observable
+final class NavGlyphController {
+
+    struct Glyph: Equatable {
+        let shallower: Bool
+        let token: Int
+    }
+
+    var glyph: Glyph? = nil
+    private var dismissItem: DispatchWorkItem?
+    private var token = 0
+
+    /// Signal a swipe in `shallower` direction so the matching toolbar button plays
+    /// its press animation. The glyph is cleared after the animation completes so
+    /// repeated swipes in the same direction fire a new token each time.
+    func show(shallower: Bool) {
+        dismissItem?.cancel()
+        token += 1
+        glyph = Glyph(shallower: shallower, token: token)
+        let item = DispatchWorkItem { [weak self] in self?.glyph = nil }
+        dismissItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: item)
+    }
+
+    /// Cancel any pending dismiss (called on view disappear).
+    func cancel() {
+        dismissItem?.cancel()
+        dismissItem = nil
     }
 }

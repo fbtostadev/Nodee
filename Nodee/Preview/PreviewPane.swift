@@ -15,6 +15,8 @@ struct PreviewPane: View {
     let file: FileNode
     let width: CGFloat
 
+    @Environment(PanelPresentation.self) private var presentation
+
     /// Cached folder listing, loaded once per file instead of re-reading disk on
     /// every body render. Only populated for folders (see .task below).
     @State private var folderChildren: [FileNode] = []
@@ -22,15 +24,25 @@ struct PreviewPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Theme.hairline)
             content
         }
-        .frame(width: width)
+        // Content pinned to its base width; the pane adds empty space on the leading
+        // side as the collapse handle nears (content slides right as a block, never
+        // resizing). The Notch grows to host the chevron's whitespace.
+        .frame(width: width, alignment: .leading)
+        .frame(width: width + presentation.previewLeadingReveal * Theme.paneHandleGutter, alignment: .trailing)
+        .animation(.smooth(duration: 0.35), value: presentation.previewLeadingReveal)
         .background(.black.opacity(0.18))
         .task(id: file.url) {
             // Read the disk once when the previewed file changes; skip the I/O for
-            // non-folders, which never use the cached listing.
-            folderChildren = file.isDirectory ? FileSystemService.children(of: file.url) : []
+            // non-folders, which never use the cached listing. Off the main actor so
+            // a large folder's contentsOfDirectory scan never stalls the panel.
+            guard file.isDirectory else { folderChildren = []; return }
+            let url = file.url
+            folderChildren = await Task.detached(priority: .utility) {
+                FileSystemService.children(of: url)
+            }.value
         }
     }
 

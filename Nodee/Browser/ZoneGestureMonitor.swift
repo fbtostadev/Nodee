@@ -11,7 +11,6 @@ import AppKit
 
 @MainActor
 final class ZoneGestureMonitor {
-    var onProgress: (CGFloat) -> Void = { _ in }
     var onCommit: (_ swipeRight: Bool) -> Void = { _ in }
     var onCancel: () -> Void = {}
 
@@ -84,11 +83,8 @@ final class ZoneGestureMonitor {
         guard abs(dx) > abs(dy), abs(dx) > 0.1 else { return }
 
         accumulatedX += dx
-        
+
         guard !committed else { return }
-        
-        // Report progress for interactive pan
-        onProgress(accumulatedX)
 
         if accumulatedX > triggerDistance {
             committed = true
@@ -98,5 +94,13 @@ final class ZoneGestureMonitor {
             committed = true
             onCommit(false) // Swiped left
         }
+    }
+
+    // Safety net if the owner is torn down without calling stop(): remove the
+    // monitors directly (NSEvent.removeMonitor isn't main-actor isolated, so it's
+    // reachable from the nonisolated deinit, unlike the isolated stop()).
+    deinit {
+        if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
     }
 }

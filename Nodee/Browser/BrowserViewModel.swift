@@ -246,18 +246,24 @@ final class BrowserViewModel {
 
     /// Two-finger horizontal navigation (List surface only): step *into* the
     /// selected folder. Mirrors the rightward drill of the Columns surface.
-    func navigateDeeper() {
-        guard displayMode == .list, let file = selectedFile, file.isDirectory else { return }
+    /// Returns `true` when navigation actually happened, so callers can gate
+    /// feedback (e.g. the navigation glyph) on a real move.
+    @discardableResult
+    func navigateDeeper() -> Bool {
+        guard displayMode == .list, let file = selectedFile, file.isDirectory else { return false }
         navigate(to: file.url)
+        return true
     }
 
     /// Two-finger horizontal navigation (List surface only): step *up* to the
     /// parent directory, bounded by the access root so a swipe never escapes what
-    /// the sandbox grants.
-    func navigateShallower() {
-        guard displayMode == .list, let current = currentDirectory, let root = rootURL else { return }
-        guard current.standardizedFileURL != root.standardizedFileURL else { return }
+    /// the sandbox grants. Returns `true` when navigation actually happened.
+    @discardableResult
+    func navigateShallower() -> Bool {
+        guard displayMode == .list, let current = currentDirectory, let root = rootURL else { return false }
+        guard current.standardizedFileURL != root.standardizedFileURL else { return false }
         navigate(to: current.deletingLastPathComponent())
+        return true
     }
 
     // MARK: - Selection & disclosure
@@ -308,7 +314,7 @@ final class BrowserViewModel {
     func extendSelection(by delta: Int) {
         let order = activeOrder
         guard !order.isEmpty else { return }
-        let anchor = anchorURL ?? selection.first ?? order.first!
+        let anchor = anchorURL ?? selection.first ?? order[0]
         guard let anchorIdx = order.firstIndex(of: anchor) else { moveSelection(by: delta); return }
         let cursorIdx = (cursorURL ?? selection.first).flatMap(order.firstIndex(of:)) ?? anchorIdx
         let nextIdx = min(max(cursorIdx + delta, 0), order.count - 1)
@@ -712,7 +718,9 @@ final class BrowserViewModel {
         return 0 // parent is the root
     }
 
-    private func prunedColumnPath() -> [URL] {
+    // `internal` (not `private`) so reconciliation logic can be unit-tested via
+    // `@testable import Nodee`. No behavior change; still effectively module-private.
+    func prunedColumnPath() -> [URL] {
         var pruned: [URL] = []
         for url in columnPath {
             guard FileSystemService.exists(url) else { break }
@@ -723,7 +731,9 @@ final class BrowserViewModel {
 
     /// After a rename/move, rewrite expanded/columnPath/currentDirectory entries
     /// that lived under the old URL so open folders stay open.
-    private func remapPaths(from old: URL, to new: URL) {
+    // `internal` (not `private`) so reconciliation logic can be unit-tested via
+    // `@testable import Nodee`. No behavior change; still effectively module-private.
+    func remapPaths(from old: URL, to new: URL) {
         let oldPath = old.standardizedFileURL.path
         func remap(_ url: URL) -> URL {
             let path = url.standardizedFileURL.path
@@ -736,6 +746,9 @@ final class BrowserViewModel {
         }
         expanded = Set(expanded.map(remap))
         columnPath = columnPath.map(remap)
+        // The back/forward stack also holds URLs that may live under the renamed
+        // folder; remapping keeps navigation history pointing at live paths.
+        history = history.map(remap)
         if let current = currentDirectory { currentDirectory = remap(current) }
     }
 
@@ -756,7 +769,9 @@ final class BrowserViewModel {
 
     /// The drill chain (each entry backs one column) from `root` down to `url`,
     /// so jumping to a nested Location lands Columns on the right path.
-    private func columnPath(from root: URL, to url: URL) -> [URL] {
+    // `internal` (not `private`) so reconciliation logic can be unit-tested via
+    // `@testable import Nodee`. No behavior change; still effectively module-private.
+    func columnPath(from root: URL, to url: URL) -> [URL] {
         let rootComps = root.standardizedFileURL.pathComponents
         let urlComps = url.standardizedFileURL.pathComponents
         guard urlComps.count > rootComps.count,
@@ -775,7 +790,11 @@ final class BrowserViewModel {
     private func persistCurrentDirectory() {
         guard let dir = activeDirectory else { return }
         let context = container.mainContext
-        let existing = try? context.fetch(FetchDescriptor<BrowserState>())
+        // Newest row first, so the single-row upsert stays robust even if a
+        // duplicate ever slips in — we always rewrite the most recent one.
+        let existing = try? context.fetch(
+            FetchDescriptor<BrowserState>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        )
         if let state = existing?.first {
             state.directoryPath = dir.standardizedFileURL.path
             state.updatedAt = Date()
@@ -788,7 +807,9 @@ final class BrowserViewModel {
     /// The last persisted directory, if any (resolved by the panel on restore).
     func lastVisitedDirectory() -> URL? {
         let context = container.mainContext
-        guard let state = try? context.fetch(FetchDescriptor<BrowserState>()).first else { return nil }
+        // Most recently updated row wins, matching the upsert above.
+        let descriptor = FetchDescriptor<BrowserState>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        guard let state = try? context.fetch(descriptor).first else { return nil }
         return URL(fileURLWithPath: state.directoryPath)
     }
 }

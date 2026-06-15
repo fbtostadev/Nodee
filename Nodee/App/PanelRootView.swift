@@ -37,6 +37,15 @@ struct PanelRootView: View {
 
     private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
 
+    /// How much the whole panel widens to fund a near handle's gutter: the sum of
+    /// the active edge reveals × the gutter. The Notch expands horizontally instead
+    /// of any pane ceding space, so directory strings never truncate. At most one
+    /// handle is near at a time, so this is ≈ one gutter — discreet and smooth.
+    private var gutterWidthBoost: CGFloat {
+        (presentation.sidebarTrailingReveal
+         + presentation.previewLeadingReveal) * Theme.paneHandleGutter
+    }
+
     /// Sidebar collapse lives in the shared presentation so the controller's
     /// three-finger swipe can toggle it — same effect as the toolbar toggle.
     private var isSidebarCollapsed: Bool { presentation.isSidebarCollapsed }
@@ -67,7 +76,7 @@ struct PanelRootView: View {
             // The inner content, revealed only once expanded; masked to the
             // shape so it never spills out during the morph.
             surface
-                .frame(width: geometry.panelSize.width, height: geometry.panelSize.height)
+                .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.panelSize.height)
                 .scaleEffect(1, anchor: .top)
                 .opacity(contentVisible ? 1 : 0)
                 .mask {
@@ -89,6 +98,8 @@ struct PanelRootView: View {
         }
         .animation(presentation.isExpanded ? Theme.panelOpen : Theme.panelClose, value: presentation.isExpanded)
         .animation(Theme.notchStretch, value: presentation.isHoveringNotch)
+        // Discreet, smooth horizontal growth as a pane handle is approached.
+        .animation(.smooth(duration: 0.35), value: gutterWidthBoost)
         // Phase orchestrator: content and shadow have independent timelines so the
         // panel reads as one solid block. On open the shape leads; content and
         // shadow reveal after it has visibly grown. On close both vanish first so
@@ -126,7 +137,7 @@ struct PanelRootView: View {
         if presentation.isExpanded {
             let corner = Theme.panelCornerRadius * geometry.panelScale
             return ShapeMetrics(
-                width: geometry.panelSize.width,
+                width: geometry.panelSize.width + gutterWidthBoost,
                 height: geometry.panelSize.height,
                 topCorner: geometry.hasNotch ? 12 : corner,
                 bottomCorner: corner
@@ -171,7 +182,8 @@ struct PanelRootView: View {
                 )
                 .transition(.move(edge: .leading).combined(with: .opacity))
 
-                PaneDivider(paneSide: .leading, onCollapse: { setSidebarCollapsed(true) })
+                PaneDivider(paneSide: .leading, gutter: .sidebarTrailing, action: { setSidebarCollapsed(true) })
+                    .zIndex(1) // keep the handle aura above the browser pane
                     .transition(.opacity)
             }
 
@@ -215,6 +227,13 @@ struct PanelRootView: View {
                         .frame(width: 12)
                         .allowsHitTesting(false)
                         .transition(.opacity)
+                    }
+                }
+                // Edge handle to reveal the sidebar — chevron CTA on the left margin.
+                .overlay(alignment: .leading) {
+                    if isSidebarCollapsed {
+                        PaneDivider(paneSide: .leading, mode: .expand, action: { setSidebarCollapsed(false) })
+                            .transition(.opacity)
                     }
                 }
         }
@@ -266,7 +285,7 @@ struct PanelRootView: View {
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvasBackground)
+        .background(Theme.panelBackground)
     }
 
     // MARK: - Actions

@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static func makeContainer() -> ModelContainer {
-        let schema = Schema([PinnedProject.self, NodeLayout.self, BrowserState.self])
+        let schema = Schema([PinnedProject.self, BrowserState.self])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
             return try ModelContainer(for: schema, configurations: [configuration])
