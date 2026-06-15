@@ -7,8 +7,8 @@ claude-*.md
 # Xcode
 build/
 DerivedData/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
+**/xcuserdata/
+*.xcuserstate
 *.playground
 .swiftpm/
 
