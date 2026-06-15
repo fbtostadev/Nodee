@@ -314,7 +314,7 @@ final class BrowserViewModel {
     func extendSelection(by delta: Int) {
         let order = activeOrder
         guard !order.isEmpty else { return }
-        let anchor = anchorURL ?? selection.first ?? order.first!
+        let anchor = anchorURL ?? selection.first ?? order[0]
         guard let anchorIdx = order.firstIndex(of: anchor) else { moveSelection(by: delta); return }
         let cursorIdx = (cursorURL ?? selection.first).flatMap(order.firstIndex(of:)) ?? anchorIdx
         let nextIdx = min(max(cursorIdx + delta, 0), order.count - 1)
@@ -784,7 +784,11 @@ final class BrowserViewModel {
     private func persistCurrentDirectory() {
         guard let dir = activeDirectory else { return }
         let context = container.mainContext
-        let existing = try? context.fetch(FetchDescriptor<BrowserState>())
+        // Newest row first, so the single-row upsert stays robust even if a
+        // duplicate ever slips in — we always rewrite the most recent one.
+        let existing = try? context.fetch(
+            FetchDescriptor<BrowserState>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        )
         if let state = existing?.first {
             state.directoryPath = dir.standardizedFileURL.path
             state.updatedAt = Date()
@@ -797,7 +801,9 @@ final class BrowserViewModel {
     /// The last persisted directory, if any (resolved by the panel on restore).
     func lastVisitedDirectory() -> URL? {
         let context = container.mainContext
-        guard let state = try? context.fetch(FetchDescriptor<BrowserState>()).first else { return nil }
+        // Most recently updated row wins, matching the upsert above.
+        let descriptor = FetchDescriptor<BrowserState>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        guard let state = try? context.fetch(descriptor).first else { return nil }
         return URL(fileURLWithPath: state.directoryPath)
     }
 }

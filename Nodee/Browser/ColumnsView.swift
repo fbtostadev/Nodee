@@ -28,7 +28,7 @@ struct ColumnsView: View {
                         column(items, at: index)
                             .frame(width: columnWidth)
                             .id(columnID(index))
-                        Divider().overlay(Color.white.opacity(0.08))
+                        Divider().overlay(Theme.hairline)
                     }
                     previewColumn
                 }

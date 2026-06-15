@@ -88,6 +88,9 @@ enum Theme {
     static let panelCornerRadius: CGFloat = 22
     static let panelBackground = Color.black
 
+    /// Faint separator line used between header bands and across pane columns.
+    static let hairline = Color.white.opacity(0.08)
+
     // Side panes — fractions of the *panel* width (not the screen), so the canvas
     // stays the dominant, central pane at any panel size. Clamped to a floor so
     // they never collapse to unusable slivers on the smallest notch screens.
@@ -130,6 +133,9 @@ enum Theme {
     static let panelOverlayDismiss: Animation = .easeOut(duration: 0.12)
     /// Spring the closed-state notch uses while it grows on hover / live drag.
     static let notchStretch: Animation = .spring(response: 0.36, dampingFraction: 0.80)
+    /// Spring for in-panel content transitions (selection, display mode, preview
+    /// show/hide) — snappy but settled, shared so the surfaces move in concert.
+    static let contentSpring: Animation = .spring(response: 0.3, dampingFraction: 0.85)
 
     // Gestures
     /// Accumulated downward two-finger scroll (points) needed to commit an open.

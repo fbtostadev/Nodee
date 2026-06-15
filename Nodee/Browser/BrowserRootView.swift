@@ -155,9 +155,9 @@ struct BrowserRootView: View {
             navGlyphCtrl.cancel()
             presentation.setPreviewVisible = nil
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.selectedFile?.id)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.displayMode)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: vm.isPreviewVisible)
+        .animation(Theme.contentSpring, value: vm.selectedFile?.id)
+        .animation(Theme.contentSpring, value: vm.displayMode)
+        .animation(Theme.contentSpring, value: vm.isPreviewVisible)
     }
 
     /// Fixed heights that make up the header band above the scrolling content.

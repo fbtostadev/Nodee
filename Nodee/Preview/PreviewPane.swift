@@ -24,7 +24,7 @@ struct PreviewPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().overlay(Color.white.opacity(0.08))
+            Divider().overlay(Theme.hairline)
             content
         }
         // Content pinned to its base width; the pane adds empty space on the leading
