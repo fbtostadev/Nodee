@@ -29,5 +29,13 @@ struct NodeeApp: App {
         Settings {
             PreferencesView()
         }
+
+        // Standalone test window for the glowing pixel loader (opened from the
+        // menu bar). Experimentation surface — safe to remove once the animation
+        // lands in its real home.
+        Window("Animation Lab", id: PixelLoaderLab.windowID) {
+            PixelLoaderLab()
+        }
+        .windowResizability(.contentMinSize)
     }
 }

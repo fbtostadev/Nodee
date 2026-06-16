@@ -35,14 +35,14 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		6CA433552FCA2B4700F15CDE /* Frameworks */ = {
+		44D52F64D3A09E217ADC93EE /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		44D52F64D3A09E217ADC93EE /* Frameworks */ = {
+		6CA433552FCA2B4700F15CDE /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -57,6 +57,7 @@
 			children = (
 				6CA4335A2FCA2B4700F15CDE /* Nodee */,
 				6CA433592FCA2B4700F15CDE /* Products */,
+				7CAC78C62FE0914E00754762 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -69,9 +70,39 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		7CAC78C62FE0914E00754762 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				DE71D567AF7DD9B4D5B9E361 /* NodeeTests */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		6CA433572FCA2B4700F15CDE /* Nodee */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6CA433652FCA2B4800F15CDE /* Build configuration list for PBXNativeTarget "Nodee" */;
+			buildPhases = (
+				6CA433542FCA2B4700F15CDE /* Sources */,
+				6CA433552FCA2B4700F15CDE /* Frameworks */,
+				6CA433562FCA2B4700F15CDE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				6CA4335A2FCA2B4700F15CDE /* Nodee */,
+			);
+			name = Nodee;
+			packageProductDependencies = (
+			);
+			productName = Nodee;
+			productReference = 6CA433582FCA2B4700F15CDE /* Nodee.app */;
+			productType = "com.apple.product-type.application";
+		};
 		FB45CD37ACC93F51C9A2B54B /* NodeeTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 2C350EBA6BC4522CFECF45CB /* Build configuration list for PBXNativeTarget "NodeeTests" */;
@@ -94,28 +125,6 @@
 			productName = NodeeTests;
 			productReference = 0371053253290DED64A554DB /* NodeeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
-		};
-		6CA433572FCA2B4700F15CDE /* Nodee */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 6CA433652FCA2B4800F15CDE /* Build configuration list for PBXNativeTarget "Nodee" */;
-			buildPhases = (
-				6CA433542FCA2B4700F15CDE /* Sources */,
-				6CA433552FCA2B4700F15CDE /* Frameworks */,
-				6CA433562FCA2B4700F15CDE /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				6CA4335A2FCA2B4700F15CDE /* Nodee */,
-			);
-			name = Nodee;
-			packageProductDependencies = (
-			);
-			productName = Nodee;
-			productReference = 6CA433582FCA2B4700F15CDE /* Nodee.app */;
-			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
@@ -174,14 +183,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		6CA433542FCA2B4700F15CDE /* Sources */ = {
+		6C78C27F758659F6CC324BBB /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		6C78C27F758659F6CC324BBB /* Sources */ = {
+		6CA433542FCA2B4700F15CDE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -199,48 +208,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		D41F81487F6949C5B179FFC1 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = LLJM6NTPHH;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.com.fabricio.NodeeTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nodee.app/Contents/MacOS/Nodee";
-			};
-			name = Debug;
-		};
-		92D92EE7BC7AD4877BDCE030 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = LLJM6NTPHH;
-				GENERATE_INFOPLIST_FILE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.3;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.com.fabricio.NodeeTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nodee.app/Contents/MacOS/Nodee";
-			};
-			name = Release;
-		};
 		6CA433632FCA2B4800F15CDE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -370,7 +337,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = LLJM6NTPHH;
+				DEVELOPMENT_TEAM = 6F2KGULZ85;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -404,7 +371,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = LLJM6NTPHH;
+				DEVELOPMENT_TEAM = 6F2KGULZ85;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -428,6 +395,48 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
+		};
+		92D92EE7BC7AD4877BDCE030 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LLJM6NTPHH;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.com.fabricio.NodeeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nodee.app/Contents/MacOS/Nodee";
+			};
+			name = Release;
+		};
+		D41F81487F6949C5B179FFC1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = LLJM6NTPHH;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = br.com.fabricio.NodeeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nodee.app/Contents/MacOS/Nodee";
+			};
+			name = Debug;
 		};
 /* End XCBuildConfiguration section */
 
