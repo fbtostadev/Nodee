@@ -24,7 +24,13 @@ struct PixelLoaderLab: View {
     @State private var speed = 0.09
     @State private var cellSize = 64.0
     @State private var cornerRadius = 0.0
+    @State private var gapRatio = 0.1875   // gap / cell — proportional, shared with the in-context grid
     @State private var isPaused = false
+
+    // In-context: keep a toast pinned open so its animation loops and updates live
+    // with the controls, instead of auto-dismissing after a trigger tap.
+    @State private var pinToast = false
+    @State private var pinnedFeedback: NotchFeedback = .loading
 
     // Layered-glow recipe (see `GlowStyle`) — defaults are the notch preset.
     @State private var glowLayers = 5
@@ -65,6 +71,17 @@ struct PixelLoaderLab: View {
             case .success: return Color(red: 0.45, green: 0.92, blue: 0.56)
             }
         }
+
+        /// Paste-ready Swift for `exportConfig()`.
+        var swiftLiteral: String {
+            switch self {
+            case .white:   return ".white"
+            case .delete:  return "Color(red: 1.00, green: 0.23, blue: 0.36)"
+            case .info:    return "Color(red: 0.55, green: 0.80, blue: 1.00)"
+            case .copy:    return "Color(red: 1.00, green: 0.78, blue: 0.38)"
+            case .success: return "Color(red: 0.45, green: 0.92, blue: 0.56)"
+            }
+        }
     }
 
     private var sequence: PixelLoaderSequence {
@@ -81,6 +98,13 @@ struct PixelLoaderLab: View {
                   baseRadius: glowBaseRadius,
                   spread: glowSpread,
                   baseOpacity: glowBaseOpacity)
+    }
+
+    /// Grid proportions, derived once and shared by the tuning stage and the
+    /// in-context grid so the small version is a faithful scale of the big one.
+    private var style: PixelGridStyle {
+        PixelGridStyle(gapRatio: gapRatio,
+                       cornerRatio: cellSize > 0 ? cornerRadius / cellSize : 0)
     }
 
     // MARK: Body
@@ -112,20 +136,22 @@ struct PixelLoaderLab: View {
                 PixelLoaderView(sequence: sequence,
                                 color: colorChoice.color,
                                 cellSize: cellSize,
-                                brightness: brightness,
-                                cornerRadius: cornerRadius,
+                                style: style,
                                 glow: glow,
+                                brightness: brightness,
                                 density: density,
                                 glowPerSubPixel: glowPerSubPixel,
                                 isPaused: isPaused)
             case .context:
                 NotchChromeLab(glow: glow,
+                               style: style,
                                referenceCellSize: cellSize,
                                brightness: brightness,
                                interval: speed,
                                density: density,
                                glowPerSubPixel: glowPerSubPixel,
-                               isPaused: isPaused)
+                               isPaused: isPaused,
+                               pinnedToast: pinToast ? pinnedFeedback : nil)
             }
         }
         .frame(minWidth: 380, minHeight: 380)
@@ -133,6 +159,20 @@ struct PixelLoaderLab: View {
 
     private var controls: some View {
         Form {
+            if mode == .context {
+                Section("Toast (in context)") {
+                    Toggle("Manter toast em loop", isOn: $pinToast)
+                    Picker("Feedback", selection: $pinnedFeedback) {
+                        ForEach(NotchFeedback.allCases) { Text($0.title).tag($0) }
+                    }
+                    .disabled(!pinToast)
+                    .opacity(pinToast ? 1 : 0.5)
+                    Text("Mantém o toast aberto p/ ajustar o bloom ao vivo; os botões de feedback ainda disparam por cima.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Pattern") {
                 Picker("Preset", selection: $preset) {
                     ForEach(Preset.allCases) { Text($0.rawValue).tag($0) }
@@ -175,6 +215,9 @@ struct PixelLoaderLab: View {
                 LabeledContent("Corner radius") {
                     Slider(value: $cornerRadius, in: 0...cellSize / 2)
                 }
+                LabeledContent("Gap ratio") {
+                    Slider(value: $gapRatio, in: 0...0.5)
+                }
                 LabeledContent("Frame interval") {
                     Slider(value: $speed, in: 0.03...0.5)
                 }
@@ -183,10 +226,74 @@ struct PixelLoaderLab: View {
                     .foregroundStyle(.secondary)
                 Toggle("Pause animation", isOn: $isPaused)
             }
+
+            Section("Export") {
+                Button {
+                    exportConfig()
+                } label: {
+                    Label("Exportar config p/ console", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                Text("Imprime todos os parâmetros + um PixelLoaderView(…) pronto pra colar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 300)
     }
+
+    // MARK: Export
+
+    /// Dumps every lab parameter to the console, plus a paste-ready `PixelLoaderView`.
+    private func exportConfig() {
+        let cornerRatio = cellSize > 0 ? cornerRadius / cellSize : 0
+        let outer = glowBaseRadius * pow(glowSpread, Double(max(0, glowLayers - 1)))
+        let pin = (mode == .context && pinToast) ? pinnedFeedback.rawValue : "—"
+
+        let lines = [
+            "──────── PixelLoader Lab ────────",
+            "mode            : \(mode.rawValue)",
+            "preset          : \(preset.rawValue)   grid \(dimension)×\(dimension)   density ×\(density)  (\(dimension * density)×\(dimension * density) px)",
+            "colour          : \(colorChoice.rawValue)",
+            "brightness      : \(brightness)",
+            "glow            : layers \(glowLayers)  baseRadius \(fmt(glowBaseRadius))  spread \(fmt(glowSpread))  baseOpacity \(fmt(glowBaseOpacity))   (outer ≈ \(fmt(outer)) pt)",
+            "glowPerSubPixel : \(glowPerSubPixel)",
+            "cellSize        : \(fmt(cellSize)) pt",
+            "cornerRadius    : \(fmt(cornerRadius)) pt   (cornerRatio \(fmt(cornerRatio)))",
+            "gapRatio        : \(fmt(gapRatio))",
+            "interval        : \(fmt(speed)) s   (\(Int((speed * 1000).rounded())) ms/frame)",
+            "isPaused        : \(isPaused)",
+            "pinnedToast     : \(pin)",
+            "",
+            "// paste-ready",
+            "PixelLoaderView(",
+            "    sequence: \(presetCall),",
+            "    color: \(colorChoice.swiftLiteral),",
+            "    cellSize: \(fmt(cellSize)),",
+            "    style: PixelGridStyle(gapRatio: \(fmt(gapRatio)), cornerRatio: \(fmt(cornerRatio))),",
+            "    glow: GlowStyle(layers: \(glowLayers), baseRadius: \(fmt(glowBaseRadius)), spread: \(fmt(glowSpread)), baseOpacity: \(fmt(glowBaseOpacity))),",
+            "    brightness: \(brightness),",
+            "    density: \(density),",
+            "    glowPerSubPixel: \(glowPerSubPixel))",
+            "─────────────────────────────────",
+        ]
+        print(lines.joined(separator: "\n"))
+    }
+
+    /// The sequence constructor matching the current preset, as paste-ready Swift.
+    private var presetCall: String {
+        switch preset {
+        case .orbit: return ".orbit(dimension: \(dimension), interval: \(fmt(speed)))"
+        case .snake: return ".snake(dimension: \(dimension), interval: \(fmt(speed)))"
+        case .cross: return ".cross(interval: \(fmt(speed)))"
+        case .lDraw: return ".lDraw(interval: \(fmt(speed)))"
+        }
+    }
+
+    /// Compact number formatting (no trailing zeros), locale-independent.
+    private func fmt(_ v: Double) -> String { String(format: "%g", v) }
 
     /// A slider paired with a numeric field that edits the same value. Typed
     /// input is clamped to `range` so it stays in sync with the slider.

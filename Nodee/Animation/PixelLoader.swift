@@ -168,107 +168,238 @@ final class PixelLoaderEngine {
 
 // MARK: - Grid view
 
-/// Renders a `PixelLoaderSequence` as a square grid of `PixelCell`s and plays it.
-/// All the bloom/look knobs are forwarded to each cell so the lab can tune them
-/// live. Light fades in/out via a short per-cell animation on the lit set.
+/// Renders a `PixelLoaderSequence` as a square grid and plays it. Two stacked
+/// layers, both fed by the same lit set:
+///   • the **bloom** — one analytic Metal pass (`PixelBloom.metal`) over the whole
+///     grid, accumulated in float and dithered once, so it stays smooth on black
+///     and costs one draw instead of a stack of per-cell blurs; and
+///   • the **cores** — the crisp `PixelCell` squares on top, faded by `.opacity`.
+/// Geometry comes entirely from `style` + `cellSize`, so the tiny in-context grid
+/// is a faithful scale of the tuned stage. The bloom's per-cell intensity is eased
+/// over real time by a `TimelineView`, since shader uniforms can't ride SwiftUI's
+/// implicit animation; the cores ride a plain `.opacity` animation tuned to match.
 struct PixelLoaderView: View {
     let sequence: PixelLoaderSequence
     var color: Color = .white
     var cellSize: CGFloat = 56
-    var spacing: CGFloat = 12
-    var brightness: Int = 1
-    var cornerRadius: CGFloat = 0
+    /// Shared grid proportions (gap & corner as fractions of the cell). One source
+    /// of truth for both the lab stage and the in-context status pixels.
+    var style: PixelGridStyle = .init()
+    /// The bloom recipe, already authored in points for this `cellSize` (the caller
+    /// scales it when rendering at a different size — see `PixelStatusIndicator`).
     var glow: GlowStyle = .init()
+    var brightness: Int = 1
     /// Sub-pixels per side that each *logical* cell is subdivided into. 1 = the
     /// classic one-square-per-cell grid; 6 renders a 3×3 pattern as an 18×18 panel
     /// while the orbit/snake/… choreography still plays on the logical grid.
     var density: Int = 1
     /// Glow each individual sub-pixel (every dot blooms) vs. one bloom per lit
-    /// logical block. Only visible when `density > 1`.
+    /// logical cell. Only visible when `density > 1`.
     var glowPerSubPixel: Bool = false
     /// Freeze playback on the current frame while keeping the lit cells glowing.
     var isPaused: Bool = false
 
     @State private var engine = PixelLoaderEngine()
+    @State private var fades: [CellFade] = []
 
-    private struct SubMetrics { let cell: CGFloat; let gap: CGFloat; let corner: CGFloat }
+    /// Fade duration for a cell going lit↔dark — shared by the bloom easing and the
+    /// cores' `.opacity` animation so they stay in lockstep.
+    private let fadeDuration: TimeInterval = 0.18
+    /// A `.shadow` radius reads as roughly the gaussian σ of its blur; this maps the
+    /// authored lobe radii to σ. Tune here (or via the lab's Base radius) to match.
+    private let sigmaPerRadius: CGFloat = 0.6
+    /// How many σ of the outer lobe to keep before the bloom layer is cropped.
+    private let padScale: CGFloat = 3.0
+    /// Fine value-noise amplitude (~±0.8 LSB) to dissolve banding on near-black.
+    private let ditherAmp: CGFloat = 1.6 / 255.0
 
-    /// Sub-pixel metrics derived so the whole thing stays a *uniform* N×N lattice
-    /// at the same footprint as the density-1 grid — density is orthogonal to size.
-    /// The gap ratio is taken from `spacing / cellSize`, so density 1 reproduces the
-    /// current cell/spacing exactly.
-    private var metrics: SubMetrics {
-        let n = CGFloat(sequence.dimension)
-        let total = n * CGFloat(max(1, density))                 // physical pixels per side
-        let footprint = n * cellSize + (n - 1) * spacing         // unchanged by density
-        let r = cellSize > 0 ? spacing / cellSize : 0
-        let cell = footprint / (total + r * (total - 1))
-        let corner = cellSize > 0 ? min(cell / 2, cornerRadius * cell / cellSize) : 0
-        return SubMetrics(cell: cell, gap: cell * r, corner: corner)
+    // MARK: Geometry (single source of truth: style × cellSize)
+
+    private var n: Int { sequence.dimension }
+    private var d: Int { max(1, density) }
+    private var gap: CGFloat { cellSize * style.gapRatio }
+    private var pitch: CGFloat { cellSize + gap }
+    private var footprint: CGFloat { CGFloat(n) * cellSize + CGFloat(n - 1) * gap }
+
+    /// Sub-pixel side so the whole thing stays one *uniform* (n·d)×(n·d) lattice at
+    /// the same footprint — density is orthogonal to size. For density 1, `subCell`
+    /// collapses back to `cellSize` and `subGap` to `gap`.
+    private var subCell: CGFloat {
+        let total = CGFloat(n * d)
+        let r = style.gapRatio
+        return footprint / (total + r * (total - 1))
     }
+    private var subGap: CGFloat { subCell * style.gapRatio }
+    private var subPitch: CGFloat { subCell + subGap }
+    private var subCorner: CGFloat { subCell * style.cornerRatio }
+
+    // MARK: Bloom field parameters
+
+    /// Bloom one halo per *sub-pixel* (only when explicitly asked and dense).
+    private var perSub: Bool { glowPerSubPixel && d > 1 }
+    /// The bloom recipe at the right scale: shrunk to the dot in per-sub-pixel mode.
+    private var bloomGlow: GlowStyle {
+        perSub ? glow.scaled(by: cellSize > 0 ? subCell / cellSize : 1) : glow
+    }
+    private var bloomDim: Int { perSub ? n * d : n }
+    private var bloomPitch: CGFloat { perSub ? subPitch : pitch }
+    private var bloomCellSize: CGFloat { perSub ? subCell : cellSize }
+    /// σ of the innermost lobe; the shader grows it by `spread` per layer (matching
+    /// the old stacked-shadow recipe), so the same lab knobs reproduce the bloom.
+    private var bloomSigma0: CGFloat { bloomGlow.baseRadius * sigmaPerRadius }
+    private var bloomOuterSigma: CGFloat {
+        bloomSigma0 * pow(bloomGlow.spread, CGFloat(max(0, bloomGlow.layers - 1)))
+    }
+    /// Halo room kept on every side so the soft tail isn't hard-cropped.
+    private var bloomPad: CGFloat { bloomOuterSigma * padScale }
+    private var bloomFrame: CGFloat { footprint + 2 * bloomPad }
+    /// Centre of cell (0,0) within the (padded) bloom layer.
+    private var bloomFirstCentre: CGFloat { bloomPad + bloomCellSize / 2 }
 
     var body: some View {
-        let n = sequence.dimension
-        let m = metrics
-        VStack(spacing: m.gap) {
-            ForEach(0..<n, id: \.self) { row in
-                HStack(spacing: m.gap) {
-                    ForEach(0..<n, id: \.self) { col in
-                        block(row: row, col: col, m: m)
-                    }
-                }
-            }
+        // Read the lit set here, at the top of `body`, so SwiftUI registers a render
+        // dependency on it. The cores otherwise read it only inside `ForEach` child
+        // closures over a *dynamic* range, which isn't reliably tracked — without
+        // this the body never re-evaluated as the engine ticked, so the loader sat
+        // frozen on frame 0.
+        let lit = engine.litCells
+        return ZStack {
+            bloomLayer
+            coresLayer(lit: lit)
         }
+        // Layout size is the grid footprint; the bloom overflows it (uncropped),
+        // exactly as the old shadows did, so callers still reserve `footprint`.
+        .frame(width: footprint, height: footprint)
         .onAppear {
+            resetFades()
             engine.play(sequence)
+            updateFades(engine.litCells)
             if isPaused { engine.pause() }
         }
         .onChange(of: sequence) { _, new in
+            resetFades()
             engine.play(new)
+            updateFades(engine.litCells)
             if isPaused { engine.pause() }
         }
         .onChange(of: isPaused) { _, paused in
             paused ? engine.pause() : engine.resume()
         }
+        .onChange(of: lit) { _, new in
+            updateFades(new)
+        }
         .onDisappear { engine.stop() }
     }
 
-    /// One logical cell, drawn as a `density × density` block of fill-only sub-pixels
-    /// (same gap as the rest of the matrix, so the lattice reads as one uniform panel)
-    /// with the bloom cast **once over the whole cluster** — never per dot.
-    ///
-    /// Because a `.shadow` is just a (local) blur of the alpha mask, one cluster-wide
-    /// `ShadowStack` reproduces both looks by radius alone: the full logical radius
-    /// melts the 6×6 dots into a single block halo (per-block mode), while a radius
-    /// scaled down to the dot leaves each dot its own halo (per-sub-pixel mode). This
-    /// keeps the cost at `layers` blur passes per block instead of `layers` *per dot*,
-    /// which is what made per-sub-pixel heavy at high density.
+    // MARK: Bloom layer (analytic Metal pass, time-eased)
+
     @ViewBuilder
-    private func block(row: Int, col: Int, m: SubMetrics) -> some View {
-        let lit = engine.litCells.contains(row * sequence.dimension + col + 1)
-        let big = max(1, density)
-        let blockGlow = glowPerSubPixel
-            ? glow.scaled(by: cellSize > 0 ? m.cell / cellSize : 1)
-            : glow
-        VStack(spacing: m.gap) {
-            ForEach(0..<big, id: \.self) { _ in
-                HStack(spacing: m.gap) {
-                    ForEach(0..<big, id: \.self) { _ in
-                        PixelCell(isOn: lit,
-                                  size: m.cell,
-                                  color: color,
-                                  brightness: brightness,
-                                  cornerRadius: m.corner,
-                                  glow: GlowStyle(layers: 0))
+    private var bloomLayer: some View {
+        if glow.isVisible {
+            let frame = bloomFrame
+            let centre = CGPoint(x: bloomFirstCentre, y: bloomFirstCentre)
+            TimelineView(.animation(minimumInterval: 1.0 / 120.0, paused: isPaused)) { ctx in
+                let intensity = bloomIntensities(at: ctx.date)
+                Rectangle()
+                    .fill(.white)   // full coverage; the shader synthesises the output
+                    .colorEffect(ShaderLibrary.pixelBloom(
+                        .float2(centre),
+                        .float(Float(bloomPitch)),
+                        .float(Float(bloomDim)),
+                        .float(Float(bloomSigma0)),
+                        .float(Float(bloomGlow.spread)),
+                        .float(Float(bloomGlow.layers)),
+                        .float(Float(bloomGlow.peak)),
+                        .color(color),
+                        .float(Float(ditherAmp)),
+                        .floatArray(intensity)
+                    ))
+                    .frame(width: frame, height: frame)
+            }
+            .frame(width: frame, height: frame)
+            .allowsHitTesting(false)
+        }
+    }
+
+    // MARK: Cores layer (crisp squares, opacity-faded)
+
+    private func coresLayer(lit: Set<Int>) -> some View {
+        VStack(spacing: subGap) {
+            ForEach(0..<n, id: \.self) { row in
+                HStack(spacing: subGap) {
+                    ForEach(0..<n, id: \.self) { col in
+                        coreCell(on: lit.contains(row * n + col + 1))
                     }
                 }
             }
         }
-        // The bloom stays mounted (driven by the dots' own alpha: a dark block is
-        // clear, so its shadow is invisible) — it fades in *and out* with the block
-        // instead of popping off the instant the cell goes dark.
-        .modifier(ShadowStack(enabled: true, color: color, style: blockGlow))
-        .animation(.easeOut(duration: 0.18), value: engine.litCells)
+    }
+
+    /// One logical cell as a `density × density` block of crisp sub-pixels, faded
+    /// in/out together by `.opacity`. The bloom behind it is drawn separately.
+    private func coreCell(on: Bool) -> some View {
+        VStack(spacing: subGap) {
+            ForEach(0..<d, id: \.self) { _ in
+                HStack(spacing: subGap) {
+                    ForEach(0..<d, id: \.self) { _ in
+                        PixelCell(size: subCell, color: color,
+                                  brightness: brightness, cornerRadius: subCorner)
+                    }
+                }
+            }
+        }
+        .opacity(on ? 1 : 0)
+        .animation(.easeOut(duration: fadeDuration), value: on)
+    }
+
+    // MARK: Per-cell intensity easing (for the bloom uniforms)
+
+    /// A cell's in-flight fade: interpolate `from → to` over `fadeDuration` from
+    /// `start`. Only rewritten when a cell flips lit/dark (≤ a few times a second),
+    /// so the per-frame `TimelineView` body only *reads* it — never mutates state.
+    private struct CellFade: Equatable {
+        var from: Double = 0
+        var to: Double = 0
+        var start: Date = .distantPast
+    }
+
+    private func resetFades() {
+        fades = Array(repeating: CellFade(), count: max(0, n * n))
+    }
+
+    private func updateFades(_ lit: Set<Int>, at now: Date = .now) {
+        guard fades.count == n * n else { resetFades(); return updateFades(lit, at: now) }
+        for i in 0..<(n * n) {
+            let target: Double = lit.contains(i + 1) ? 1 : 0
+            if fades[i].to != target {
+                fades[i] = CellFade(from: eased(fades[i], at: now), to: target, start: now)
+            }
+        }
+    }
+
+    private func eased(_ f: CellFade, at now: Date) -> Double {
+        let t = now.timeIntervalSince(f.start) / fadeDuration
+        if t <= 0 { return f.from }
+        if t >= 1 { return f.to }
+        let p = 1 - pow(1 - t, 3)                    // easeOut cubic, matches the cores
+        return f.from + (f.to - f.from) * p
+    }
+
+    /// Per-cell eased intensity for the bloom, expanded to the bloom's grid: one
+    /// value per logical cell (per-block mode) or replicated to every sub-pixel
+    /// (per-sub-pixel mode).
+    private func bloomIntensities(at date: Date) -> [Float] {
+        guard fades.count == n * n else { return Array(repeating: 0, count: bloomDim * bloomDim) }
+        let logical = (0..<(n * n)).map { eased(fades[$0], at: date) }
+        if !perSub { return logical.map(Float.init) }
+        let side = n * d
+        var out = [Float](repeating: 0, count: side * side)
+        for r in 0..<side {
+            for c in 0..<side {
+                out[r * side + c] = Float(logical[(r / d) * n + (c / d)])
+            }
+        }
+        return out
     }
 }
 
@@ -278,8 +409,8 @@ struct PixelLoaderView: View {
         PixelLoaderView(sequence: .orbit(dimension: 3),
                         color: .white,
                         cellSize: 64,
-                        brightness: 2,
                         glow: GlowStyle(layers: 5, baseRadius: 24, spread: 1.31, baseOpacity: 0.45),
+                        brightness: 2,
                         density: 6)
     }
     .frame(width: 360, height: 360)

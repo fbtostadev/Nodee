@@ -26,6 +26,9 @@ struct PixelStatusIndicator: View {
     var color: Color
     var extent: CGFloat = 18
     var brightness: Int = 2
+    /// The same proportions (gap & corner ratios) the tuning stage uses, so the
+    /// tiny grid is a faithful down-scale of the big one — not a separate guess.
+    var style: PixelGridStyle = .init()
     /// Glow recipe authored for a cell of `referenceCellSize`; scaled to this grid.
     var glow: GlowStyle = .init()
     var referenceCellSize: CGFloat = 64
@@ -33,21 +36,16 @@ struct PixelStatusIndicator: View {
     var glowPerSubPixel: Bool = false
     var isPaused: Bool = false
 
-    /// Gap between pixels as a fraction of a pixel's side.
-    private let gapRatio: CGFloat = 0.22
-
     var body: some View {
         let n = CGFloat(sequence.dimension)
-        let cell = extent / (n + gapRatio * (n - 1))
-        let gap = cell * gapRatio
+        let cell = extent / (n + style.gapRatio * (n - 1))   // footprint == extent
         let factor = referenceCellSize > 0 ? cell / referenceCellSize : 1
         PixelLoaderView(sequence: sequence,
                         color: color,
                         cellSize: cell,
-                        spacing: gap,
-                        brightness: brightness,
-                        cornerRadius: cell * 0.18,
+                        style: style,
                         glow: glow.scaled(by: factor),
+                        brightness: brightness,
                         density: density,
                         glowPerSubPixel: glowPerSubPixel,
                         isPaused: isPaused)
@@ -111,15 +109,24 @@ enum NotchFeedback: String, CaseIterable, Identifiable {
 
 struct NotchChromeLab: View {
     var glow: GlowStyle = .init()
+    var style: PixelGridStyle = .init()
     var referenceCellSize: CGFloat = 64
     var brightness: Int = 2
     var interval: TimeInterval = 0.09
     var density: Int = 1
     var glowPerSubPixel: Bool = false
     var isPaused: Bool = false
+    /// When set (from the lab's "loop toast" toggle) the toast stays pinned open so
+    /// its animation loops and updates live with the controls, instead of
+    /// auto-dismissing. Transient fires from the trigger row still play over it and
+    /// then fall back to the pinned one.
+    var pinnedToast: NotchFeedback? = nil
 
     @State private var activeToast: NotchFeedback?
     @State private var dismissTask: Task<Void, Never>?
+
+    /// The toast actually shown: a transient fire wins, otherwise the pinned one.
+    private var displayedToast: NotchFeedback? { activeToast ?? pinnedToast }
 
     var body: some View {
         VStack(spacing: 22) {
@@ -134,6 +141,7 @@ struct NotchChromeLab: View {
     private var panel: some View {
         VStack(spacing: 0) {
             MockToolbar(glow: glow,
+                        style: style,
                         referenceCellSize: referenceCellSize,
                         brightness: brightness,
                         interval: interval,
@@ -150,9 +158,10 @@ struct NotchChromeLab: View {
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
         .overlay(alignment: .bottom) {
-            if let fb = activeToast {
+            if let fb = displayedToast {
                 MockToastPill(feedback: fb,
                               glow: glow,
+                              style: style,
                               referenceCellSize: referenceCellSize,
                               brightness: brightness,
                               interval: interval,
@@ -165,6 +174,9 @@ struct NotchChromeLab: View {
                     .id(fb)
             }
         }
+        // Pin/unpin (and feedback swaps) from the lab animate in/out; transient
+        // fires keep their own `withAnimation` in `fire`/`dismiss`.
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: pinnedToast)
     }
 
     private var fauxContent: some View {
@@ -228,6 +240,7 @@ struct NotchChromeLab: View {
 
 private struct MockToolbar: View {
     var glow: GlowStyle
+    var style: PixelGridStyle
     var referenceCellSize: CGFloat
     var brightness: Int
     var interval: TimeInterval
@@ -316,6 +329,7 @@ private struct MockToolbar: View {
                         color: copyPhase == .done ? green : iceBlue,
                         extent: 18,
                         brightness: brightness,
+                        style: style,
                         glow: glow,
                         referenceCellSize: referenceCellSize,
                         density: density,
@@ -391,6 +405,7 @@ private struct MockToolbar: View {
 private struct MockToastPill: View {
     let feedback: NotchFeedback
     var glow: GlowStyle
+    var style: PixelGridStyle
     var referenceCellSize: CGFloat
     var brightness: Int
     var interval: TimeInterval
@@ -413,6 +428,7 @@ private struct MockToastPill: View {
                                  color: feedback.accent,
                                  extent: 16,
                                  brightness: brightness,
+                                 style: style,
                                  glow: glow,
                                  referenceCellSize: referenceCellSize,
                                  density: density,
@@ -461,7 +477,8 @@ private struct MockToastPill: View {
         Color.black
         NotchChromeLab(glow: GlowStyle(layers: 5, baseRadius: 24, spread: 1.31, baseOpacity: 0.45),
                        referenceCellSize: 64,
-                       density: 6)
+                       density: 6,
+                       pinnedToast: .loading)
     }
     .frame(width: 560, height: 460)
 }

@@ -2,76 +2,78 @@
 //  PixelCell.swift
 //  Nodee
 //
-//  A single pixel of the glowing loader grid. The look (a hot, emissive square
-//  blooming on black) does not come from one rectangle and one shadow — it comes
-//  from *stacking*:
-//    • `brightness`   fill rectangles layered in a ZStack → a denser core.
-//    • the glow       several independent shadows of *different* radii and
-//                     intensities, composited under the crisp square by
-//                     `ShadowStack` → a soft, graduated bloom.
-//  This mirrors how Figma's "Beautiful Shadows" works: rather than one halo (or
-//  many identical ones, which only get brighter, never softer), a tight bright
-//  halo near the edge fades through progressively wider, fainter ones, so the
-//  dispersion eases smoothly out from the centre.
+//  A single lit square of the loader grid — just the crisp core. The bloom around
+//  it is no longer a per-cell stack of `.shadow()`s (that quantised five
+//  translucent layers over black and came out grainy, and re-blurred every cell
+//  every frame, which stuttered); it is now one analytic Metal pass shared by the
+//  whole grid (see `PixelBloom.metal`, driven from `PixelLoaderView`). So the cell
+//  itself is only the sharp emissive square; the grid fades it via `.opacity`.
 //
 //  `color` is intentionally a plain parameter: for now every cell is white, but
-//  the caller is meant to drive it per-action later (e.g. red for a delete).
+//  the caller drives it per-action (e.g. red for a delete, green for success).
 //
 
 import SwiftUI
 
-/// One lit-or-dark square in the loader grid.
+/// One sharp square of the loader grid. Lit/dark is expressed by the caller via
+/// `.opacity`, so the square can fade smoothly in and out with the animation.
 struct PixelCell: View {
-    /// Whether the pixel is lit. When `false` it renders fully clear and casts no
-    /// shadow, so dark cells are genuinely invisible against the black stage.
-    let isOn: Bool
     /// Side length of the square, in points.
-    let size: CGFloat
-    /// The light's colour — driven per-action by the caller (white by default).
-    let color: Color
-    /// How many fill rectangles are stacked in the body. Higher → brighter core.
+    var size: CGFloat
+    /// The pixel's colour — driven per-action by the caller (white by default).
+    var color: Color = .white
+    /// How many fill rectangles are stacked in the body. Kept for parity with the
+    /// lab's "brightness" knob (opaque fills, so it reads as a denser core).
     var brightness: Int = 1
     /// Corner radius of the square (0 = hard pixel).
     var cornerRadius: CGFloat = 0
-    /// The glow's layered-shadow recipe (radii, intensities, falloff).
-    var glow: GlowStyle = .init()
 
     var body: some View {
         ZStack {
-            ForEach(Array(0..<max(1, brightness)), id: \.self) { _ in
+            ForEach(0..<max(1, brightness), id: \.self) { _ in
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             }
         }
-        .foregroundStyle(isOn ? color : .clear)
+        .foregroundStyle(color)
         .frame(width: size, height: size)
-        .modifier(ShadowStack(enabled: isOn, color: color, style: glow))
     }
 }
 
-/// The recipe for a `PixelCell`'s bloom: `layers` independent shadows whose blur
-/// grows by `× spread` and whose alpha shrinks by `÷ spread` per step, all cast
-/// from the centre. Inner layers are tight and bright, outer ones wide and faint.
+// MARK: - Bloom recipe
+
+/// The recipe for the loader's bloom. Authored as the talk's layered-shadow knobs
+/// (`layers`, `baseRadius`, `spread`, `baseOpacity`) so the lab UI and the tuned
+/// presets stay meaningful, but now *interpreted* as a two-lobe gaussian field
+/// (a tight hot core easing into a wide soft halo) rendered analytically by
+/// `PixelBloom.metal`. The same numbers therefore reproduce the known look while
+/// dropping the grain and the per-frame blur cost.
 ///
-///     layer i → radius = baseRadius · spread^i
-///               alpha  = baseOpacity / spread^i
-///
-/// With the defaults (5 layers, r₀ = 8, spread 1.6, α₀ = 0.5) the layers land at
-/// roughly r = 8, 13, 20, 33, 52 and α = 0.50, 0.31, 0.20, 0.12, 0.08 — a hot
-/// core easing into a soft ambient halo.
+///     coreRadius  = baseRadius                          // tight, bright centre
+///     haloRadius  = baseRadius · spread^(layers - 1)    // wide, faint surround
+///     peak        = baseOpacity                         // alpha at a lit centre
 struct GlowStyle: Equatable {
-    /// Number of stacked shadow layers. 0 disables the glow entirely.
+    /// Number of conceptual layers. 0 disables the glow entirely.
     var layers: Int = 5
-    /// Blur radius of the innermost (tightest, brightest) layer, in points.
+    /// Blur radius of the innermost (tightest, brightest) lobe, in points.
     var baseRadius: CGFloat = 8
-    /// Per-layer growth factor: each layer's radius ×= spread, its alpha ÷= spread.
+    /// Per-layer growth factor: spreads the outer halo out from the core.
     var spread: CGFloat = 1.6
-    /// Alpha of the innermost layer; outer layers fall off from here.
+    /// Alpha of the bloom at a fully-lit pixel's centre.
     var baseOpacity: CGFloat = 0.5
 
+    /// Whether the bloom contributes anything at all.
+    var isVisible: Bool { layers > 0 && baseRadius > 0 && baseOpacity > 0 }
+    /// Point radius of the tight hot core.
+    var coreRadius: CGFloat { baseRadius }
+    /// Point radius where the diffuse halo has effectively faded out.
+    var haloRadius: CGFloat { baseRadius * pow(spread, CGFloat(max(0, layers - 1))) }
+    /// Peak alpha at a lit pixel's centre.
+    var peak: CGFloat { baseOpacity }
+
     /// The same recipe with every radius multiplied by `factor`, keeping spread,
-    /// opacity and layer count. Used to keep the bloom proportional when the cell
-    /// is rendered at a different size than the one the recipe was tuned at — e.g.
-    /// the tiny status pixels in the toolbar/toast vs. the big tuning stage.
+    /// opacity and layer count — used to keep the bloom proportional when the grid
+    /// renders at a different cell size than the one it was tuned at (the tiny
+    /// status pixels in the toolbar/toast vs. the big tuning stage).
     func scaled(by factor: CGFloat) -> GlowStyle {
         GlowStyle(layers: layers,
                   baseRadius: baseRadius * factor,
@@ -80,36 +82,25 @@ struct GlowStyle: Equatable {
     }
 }
 
-/// Composites a `GlowStyle`'s shadow layers *under* its content so the square
-/// itself stays crisp on top. Widest/faintest layers are drawn first (furthest
-/// back) and the tightest, brightest one last, just beneath the core, so the hot
-/// inner glow is never washed out by the diffuse outer layers. When `enabled` is
-/// false no shadows are cast, so a dark pixel emits nothing.
-struct ShadowStack: ViewModifier {
-    let enabled: Bool
-    let color: Color
-    let style: GlowStyle
+// MARK: - Grid proportions
 
-    func body(content: Content) -> some View {
-        ZStack {
-            if enabled {
-                ForEach((0..<max(0, style.layers)).reversed(), id: \.self) { i in
-                    let step = pow(style.spread, CGFloat(i))
-                    content.shadow(color: color.opacity(min(1, style.baseOpacity / step)),
-                                   radius: style.baseRadius * step, x: 0, y: 0)
-                }
-            }
-            content
-        }
-    }
+/// The proportions that must stay constant whatever size the grid renders at, so
+/// the tiny in-context version is a faithful scale of the tuned stage instead of a
+/// separately-guessed geometry. One source of truth shared by `PixelLoaderView`
+/// and `PixelStatusIndicator`, derived against the current cell size.
+struct PixelGridStyle: Equatable {
+    /// Gap between pixels as a fraction of a pixel's side. The tuned look is a
+    /// 12 pt gap on a 64 pt cell → 0.1875.
+    var gapRatio: CGFloat = 0.1875
+    /// Corner radius as a fraction of a pixel's side. 0 = hard square pixels.
+    var cornerRatio: CGFloat = 0
 }
 
-#Preview("PixelCell — glow") {
+#Preview("PixelCell") {
     HStack(spacing: 28) {
-        PixelCell(isOn: true, size: 72, color: .white, brightness: 2)
-        PixelCell(isOn: true, size: 72, color: Color(red: 1, green: 0.23, blue: 0.36),
-                  brightness: 2)
-        PixelCell(isOn: false, size: 72, color: .white)
+        PixelCell(size: 72, color: .white, brightness: 2)
+        PixelCell(size: 72, color: Color(red: 1, green: 0.23, blue: 0.36), brightness: 2)
+        PixelCell(size: 72, color: .white, cornerRadius: 16)
     }
     .padding(60)
     .background(.black)
