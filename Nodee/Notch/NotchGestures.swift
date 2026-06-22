@@ -28,6 +28,10 @@ import AppKit
 final class NotchOpenGestureMonitor {
     /// Whether the open gesture should be tracked right now (i.e. condensed).
     var shouldTrack: () -> Bool = { true }
+    /// Whether the Notch is concealed (external display / fullscreen). When true
+    /// the hover/dwell hit area tightens to the bare Notch so merely skimming the
+    /// top-centre never auto-opens — the gesture only engages directly over it.
+    var isConcealed: () -> Bool = { false }
     var onHoverChange: (Bool) -> Void = { _ in }
     var onProgress: (CGFloat) -> Void = { _ in }
     var onCommit: () -> Void = {}
@@ -117,7 +121,8 @@ final class NotchOpenGestureMonitor {
 
     private func cursorIsOverNotch() -> Bool {
         guard let geometry = currentGeometry() else { return false }
-        return geometry.hoverTargetRect.contains(NSEvent.mouseLocation)
+        let hitArea = isConcealed() ? geometry.notchActivateRect : geometry.hoverTargetRect
+        return hitArea.contains(NSEvent.mouseLocation)
     }
 
     private func setHover(_ value: Bool) {

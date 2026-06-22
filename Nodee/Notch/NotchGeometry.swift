@@ -115,6 +115,36 @@ struct NotchGeometry {
         )
     }
 
+    /// The *only* region that peeks the concealed Notch out: a thin strip pinned
+    /// to the very top edge, the Notch's own width. The Notch reacts only when the
+    /// pointer is pressed all the way up against the top limit of the screen — so
+    /// an app's top chrome (tabs, toolbars) stays fully reachable in fullscreen.
+    ///
+    /// The strip overshoots the top edge by `topOvershoot`: `CGRect.contains` is
+    /// half-open at `maxY`, so without it a cursor parked on the very top row
+    /// (`mouseLocation.y == screen.frame.maxY`) would miss the strip.
+    var notchActivateRect: CGRect {
+        let topOvershoot: CGFloat = 8
+        let band: CGFloat = 4
+        let width = closedWidth
+        let height = band + topOvershoot
+        return CGRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - band,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Whether the menu bar is currently hidden on this screen — true while a
+    /// fullscreen app owns the space (or the system menu bar is set to
+    /// auto-hide). In windowed mode the menu bar reserves a strip at the top so
+    /// `visibleFrame.maxY` sits below `frame.maxY`; fullscreen collapses it,
+    /// bringing the two flush.
+    var menuBarHidden: Bool {
+        screen.frame.maxY - screen.visibleFrame.maxY < 1
+    }
+
     /// Screen the pointer is currently on, falling back to the main screen.
     static func activeScreen() -> NSScreen? {
         let mouse = NSEvent.mouseLocation

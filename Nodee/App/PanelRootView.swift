@@ -37,6 +37,16 @@ struct PanelRootView: View {
 
     private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
 
+    /// Vertical shift that tucks the compact Notch above the top edge on displays
+    /// that conceal it (external monitors / fullscreen), bringing it back down as
+    /// the pointer nears the top-centre. Zero while expanded or on the always-on
+    /// built-in notch, so nothing changes there.
+    private var concealOffset: CGFloat {
+        guard presentation.concealsNotch, !presentation.isExpanded else { return 0 }
+        let hiddenDistance = geometry.closedHeight + 10
+        return -hiddenDistance * (1 - presentation.notchReveal)
+    }
+
     /// How much the whole panel widens to fund a near handle's gutter: the sum of
     /// the active edge reveals × the gutter. The Notch expands horizontally instead
     /// of any pane ceding space, so directory strings never truncate. At most one
@@ -90,7 +100,7 @@ struct PanelRootView: View {
         // shape a menu-bar's height too low. Ignore it so the shape is flush
         // with the hardware notch / top edge.
         .ignoresSafeArea()
-        .offset(y: -6)
+        .offset(y: -6 + concealOffset)
         .onAppear {
             browser.toast = toast
             appState.resolveHomeAccess()
@@ -98,6 +108,8 @@ struct PanelRootView: View {
         }
         .animation(presentation.isExpanded ? Theme.panelOpen : Theme.panelClose, value: presentation.isExpanded)
         .animation(Theme.notchStretch, value: presentation.isHoveringNotch)
+        // Slide the concealed Notch up out of view and back as the pointer nears.
+        .animation(Theme.notchStretch, value: concealOffset)
         // Discreet, smooth horizontal growth as a pane handle is approached.
         .animation(.smooth(duration: 0.35), value: gutterWidthBoost)
         // Phase orchestrator: content and shadow have independent timelines so the
@@ -148,16 +160,29 @@ struct PanelRootView: View {
         let peekGrowth = presentation.openProgress * Theme.notchPeekGrowth
         let width = geometry.closedWidth + presentation.openProgress * 8
         let height = geometry.closedHeight + hoverGrowth + peekGrowth
+        // While concealed (external display / fullscreen) the compact shape reads
+        // as a notch flush to the top edge — flat top, rounded bottom — so the
+        // reveal peeks down like the hardware notch instead of a floating pill.
+        let notchShaped = geometry.hasNotch || presentation.concealsNotch
         return ShapeMetrics(
             width: width,
             height: height,
-            topCorner: geometry.hasNotch ? 0 : height / 2,
-            bottomCorner: geometry.hasNotch ? min(14, height / 2) : height / 2
+            topCorner: notchShaped ? 0 : height / 2,
+            bottomCorner: notchShaped ? min(14, height / 2) : height / 2
         )
     }
 
+    /// Whether the panel draws as a notch (independent top/bottom corners) rather
+    /// than a fully-rounded pill: physical notch screens always, plus concealed
+    /// displays (so the compact peek stays flush to the edge). Kept true through
+    /// the expand so the shape type never swaps mid-morph — expanded just rounds
+    /// the top corners back via the metrics.
+    private var usesNotchShape: Bool {
+        geometry.hasNotch || presentation.concealsNotch
+    }
+
     private func panelShape(_ metrics: ShapeMetrics) -> AnyShape {
-        if geometry.hasNotch {
+        if usesNotchShape {
             AnyShape(NotchShape(topCornerRadius: metrics.topCorner, bottomCornerRadius: metrics.bottomCorner))
         } else {
             AnyShape(DynamicIslandPillShape(cornerRadius: metrics.bottomCorner))
