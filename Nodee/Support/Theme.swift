@@ -79,6 +79,10 @@ enum Theme {
     /// the rubber-band feel before the full expansion takes over.
     static let notchHoverGrowth: CGFloat = 5
     static let notchPeekGrowth: CGFloat = 16
+    /// Reveal amount (0…1) the concealed Notch settles at while the pointer is
+    /// squarely over its footprint (external display / fullscreen) — a compact
+    /// peek that stays out of the way of an app's top chrome (tabs, toolbars).
+    static let notchNearPeek: CGFloat = 0.6
     /// Normalized vertical travel (0…1 of the trackpad) of a two/three-finger
     /// swipe up — only honored while the pointer is over the bottom grabber — to
     /// commit a condense. Gating on the grabber keeps it clear of the system's
