@@ -1,0 +1,162 @@
+version: "1.0"
+created: "2026-06-23"
+scope: "fbtostadev/Nodee"
+type: "guardrails_and_state_machine"
+
+# Critical Rules for All Contributors
+critical_rules:
+  - rule: "Never author commits as AI identity"
+    check_before: "git push"
+    command: "git config user.name && git config user.email"
+    must_be: "human_developer_identity"
+    violations:
+      - "Copilot"
+      - "AI"
+      - "bot"
+      - "any non-human identity"
+    fix: "git config --local user.name 'Your Name'"
+
+  - rule: "Never use AI Slop in PRs or commits"
+    check_before: "PR creation or commit"
+    violations:
+      - "This PR aims to enhance..."
+      - "comprehensive improvements"
+      - "optimize and refactor"
+      - "best practices"
+    good_practice: "Specific, human-written, with technical context"
+    fix: "Rewrite with actual technical details"
+
+  - rule: "Never direct merge to main/develop"
+    check_before: "git push"
+    must_use: "Feature branch → PR workflow"
+    violations:
+      - "git checkout main; git merge feature"
+      - "git checkout develop; git merge feature"
+    fix: "git revert -m 1 <merge-commit> && git push"
+
+# Git Workflow State Machine
+workflow_states:
+  - state: "START"
+    next: "BRANCH_CHECK"
+
+  - state: "BRANCH_CHECK"
+    check: "Not on main/develop"
+    on_pass: "IDENTITY_CHECK"
+    on_fail: "ERROR_BRANCH"
+
+  - state: "IDENTITY_CHECK"
+    check: "git config user.name is human"
+    command: "git config user.name"
+    on_pass: "WORK_PHASE"
+    on_fail: "ERROR_IDENTITY"
+
+  - state: "WORK_PHASE"
+    description: "Make changes in feature branch"
+    next: "COMMIT_CHECK"
+
+  - state: "COMMIT_CHECK"
+    check: "Commit message is specific (not AI Slop)"
+    on_pass: "PUSH"
+    on_fail: "ERROR_SLOP"
+
+  - state: "PUSH"
+    action: "git push origin feature-branch"
+    next: "PR_CREATE"
+
+  - state: "PR_CREATE"
+    check: "PR description is specific (not AI Slop)"
+    method: "GitHub UI"
+    on_pass: "REVIEW"
+    on_fail: "ERROR_SLOP"
+
+  - state: "REVIEW"
+    description: "Code review + CI/CD checks on GitHub"
+    next: "MERGE"
+
+  - state: "MERGE"
+    action: "Merge via GitHub UI ONLY"
+    method: "PR merge button (never CLI)"
+    next: "END"
+
+  - state: "END"
+    description: "Success"
+
+# Error Recovery States
+error_states:
+  - state: "ERROR_BRANCH"
+    cause: "Attempted to work on main/develop"
+    recovery: |
+      git checkout -b feat/new-feature
+      git reset develop
+
+  - state: "ERROR_IDENTITY"
+    cause: "git user.name is AI or bot"
+    recovery: |
+      git config --local user.name "Your Name"
+      git config --local user.email "your@email.com"
+
+  - state: "ERROR_SLOP"
+    cause: "Message or PR description is generic AI template"
+    recovery: "Rewrite with specific technical details"
+
+# Pre-Push Checklist
+pre_push_checklist:
+  - check: "git config user.name"
+    must_be: "Human name (not AI/Copilot)"
+    required: true
+
+  - check: "git config user.email"
+    must_be: "Real email"
+    required: true
+
+  - check: "git branch"
+    must_be: "feature/*, never main/develop"
+    required: true
+
+  - check: "git log --oneline -5"
+    must_be: "Specific messages, not templates"
+    required: true
+
+  - check: "git status"
+    must_be: "Clean working tree"
+    required: true
+
+# PR Description Guidelines
+pr_guidelines:
+  forbidden_phrases:
+    - "aims to"
+    - "comprehensive"
+    - "improve"
+    - "optimize"
+    - "refactor"
+    - "enhancement"
+    - "best practices"
+    - "ensures"
+    - "allows the user"
+
+  required_sections:
+    - name: "What"
+      content: "Specific description of changes (not generic)"
+
+    - name: "Why"
+      content: "Technical reason"
+
+  optional_sections:
+    - name: "How to Verify"
+      content: "Specific steps or N/A"
+
+    - name: "Technical Notes"
+      content: "Commit refs, limitations, decisions"
+
+# Documentation
+documentation:
+  in_repository: ".github/CONTRIBUTION_GUARDRAILS.md"
+  in_claude: ".claude/railguards.json"
+  in_claude_yaml: ".claude/railguards.yaml"
+  in_session: "~/.copilot/session-state/.../RAILGUARDS.md"
+
+# Memory References (Copilot Memory - Repository Scope)
+memories:
+  - fact: "Never author commits with AI identity; always use human developer identity"
+  - fact: "Never use generic AI-generated language (AI Slop) in PR descriptions, commit messages, or notices"
+  - fact: "Never perform direct merges into main or develop branches"

@@ -1,0 +1,298 @@
+{
+  "version": "1.0",
+  "created": "2026-06-23",
+  "scope": "fbtostadev/Nodee",
+  "description": "Critical guardrails and state machine for safe git workflow",
+  "guardrails": [
+    {
+      "id": "auth_identity",
+      "name": "Never Author as AI",
+      "severity": "CRITICAL",
+      "rule": "All commits must be authored by human developer identity, never AI/bot identity",
+      "violations": [
+        "git user.name = 'Copilot'",
+        "git user.name = 'AI'",
+        "git user.name = 'bot'",
+        "any non-human identity"
+      ],
+      "prevention": [
+        "git config user.name                  # Check before every push",
+        "git config user.email                 # Must be real human email",
+        "git config --local user.name 'Your Name'  # Fix if wrong"
+      ],
+      "detection_trigger": "Before `git push`",
+      "recovery": {
+        "if_violated": "git revert <commit-hash> && git push origin",
+        "or_alternative": "git reset HEAD~1; git config --local user.name 'Your Name'; git commit -m '...'"
+      }
+    },
+    {
+      "id": "language_slop",
+      "name": "No AI Slop in PRs/Commits",
+      "severity": "CRITICAL",
+      "rule": "PR descriptions and commit messages must be specific, human-written, avoiding generic templates",
+      "violations": [
+        "This PR aims to enhance...",
+        "add comprehensive improvements",
+        "optimize and refactor",
+        "improve user experience",
+        "best practices",
+        "ensures...allows the user..."
+      ],
+      "good_examples": [
+        "feat: restore DragRevealMonitor from uxrefine/mvp\n  Allows users to open Notch by dragging files near screen top.",
+        "fix: remap ColumnPath on FSEvents rename\n  Previously, rename/move could leave orphaned paths."
+      ],
+      "prevention": [
+        "Describe EXACTLY what was done (not generic templates)",
+        "Explain technical reason WHY",
+        "Include commit refs, file paths, actual changes",
+        "Use natural language (pt-BR or en)",
+        "Avoid phrases like 'comprehensive', 'improve', 'optimize'"
+      ],
+      "detection_trigger": "Before PR creation or commit message",
+      "recovery": {
+        "if_violated": "GitHub: Edit PR description; OR Close PR and create new one with proper language"
+      }
+    },
+    {
+      "id": "no_direct_merge",
+      "name": "Never Direct Merge to main/develop",
+      "severity": "CRITICAL",
+      "rule": "Never use `git merge` directly on main or develop branches. Always use PR workflow via GitHub UI.",
+      "violations": [
+        "git checkout main; git merge feature-branch",
+        "git checkout develop; git merge feature-branch",
+        "gh pr merge --admin (on protected branches)"
+      ],
+      "enforcement": [
+        "Always create feature branch: git checkout -b feat/...",
+        "Always push to feature branch: git push origin feat/...",
+        "Always create PR via GitHub",
+        "Always merge via GitHub UI button (never CLI)"
+      ],
+      "detection_trigger": "Before `git push` to main/develop",
+      "recovery": {
+        "if_violated": "git revert -m 1 <merge-commit> && git push origin main"
+      }
+    }
+  ],
+  "state_machine": {
+    "id": "safe_git_workflow",
+    "initial_state": "START",
+    "states": [
+      {
+        "id": "START",
+        "description": "Begin workflow",
+        "transitions": [
+          {
+            "to": "BRANCH_CHECK",
+            "condition": "Always"
+          }
+        ]
+      },
+      {
+        "id": "BRANCH_CHECK",
+        "description": "Verify not on main/develop",
+        "check": "git branch | grep -E '^\\*.*main|develop'",
+        "transitions": [
+          {
+            "to": "ERROR_BRANCH",
+            "condition": "On main or develop",
+            "message": "Must not commit directly to main/develop!"
+          },
+          {
+            "to": "IDENTITY_CHECK",
+            "condition": "On feature branch"
+          }
+        ]
+      },
+      {
+        "id": "IDENTITY_CHECK",
+        "description": "Verify git user identity is human",
+        "check": "git config user.name && git config user.email",
+        "transitions": [
+          {
+            "to": "ERROR_IDENTITY",
+            "condition": "user.name is AI/bot/Copilot",
+            "message": "Fix git config --local user.name before continuing"
+          },
+          {
+            "to": "WORK_PHASE",
+            "condition": "Identity is human"
+          }
+        ]
+      },
+      {
+        "id": "WORK_PHASE",
+        "description": "Make changes in feature branch",
+        "transitions": [
+          {
+            "to": "COMMIT_CHECK",
+            "condition": "Ready to commit"
+          }
+        ]
+      },
+      {
+        "id": "COMMIT_CHECK",
+        "description": "Verify commit message is specific, not AI Slop",
+        "transitions": [
+          {
+            "to": "ERROR_SLOP",
+            "condition": "Message is generic/template",
+            "message": "Rewrite with specific technical details"
+          },
+          {
+            "to": "PUSH",
+            "condition": "Message is specific and human-written"
+          }
+        ]
+      },
+      {
+        "id": "PUSH",
+        "description": "Push feature branch to remote",
+        "command": "git push origin feat/...",
+        "transitions": [
+          {
+            "to": "PR_CREATE",
+            "condition": "Push successful"
+          }
+        ]
+      },
+      {
+        "id": "PR_CREATE",
+        "description": "Create PR with specific description (no AI Slop)",
+        "transitions": [
+          {
+            "to": "ERROR_SLOP",
+            "condition": "Description is generic/template"
+          },
+          {
+            "to": "REVIEW",
+            "condition": "Description is specific and clear"
+          }
+        ]
+      },
+      {
+        "id": "REVIEW",
+        "description": "Await code review and CI/CD checks on GitHub",
+        "transitions": [
+          {
+            "to": "MERGE",
+            "condition": "Review approved + CI/CD passed"
+          }
+        ]
+      },
+      {
+        "id": "MERGE",
+        "description": "Merge via GitHub UI ONLY (never CLI)",
+        "method": "GitHub PR merge button",
+        "transitions": [
+          {
+            "to": "END",
+            "condition": "Merge successful"
+          }
+        ]
+      },
+      {
+        "id": "END",
+        "description": "Workflow complete"
+      },
+      {
+        "id": "ERROR_BRANCH",
+        "description": "STOP: Cannot work on protected branches",
+        "recovery": "git checkout -b feat/new-branch && git reset develop"
+      },
+      {
+        "id": "ERROR_IDENTITY",
+        "description": "STOP: Git identity is not human",
+        "recovery": "git config --local user.name 'Your Name'"
+      },
+      {
+        "id": "ERROR_SLOP",
+        "description": "STOP: Message/description is AI Slop (generic template)",
+        "recovery": "Rewrite with specific technical details"
+      }
+    ]
+  },
+  "pre_push_checklist": [
+    {
+      "check": "git config user.name",
+      "expected": "Human name (not Copilot, AI, bot)",
+      "required": true
+    },
+    {
+      "check": "git config user.email",
+      "expected": "Real email address",
+      "required": true
+    },
+    {
+      "check": "git branch",
+      "expected": "feature/*, never main or develop",
+      "required": true
+    },
+    {
+      "check": "git log --oneline -5",
+      "expected": "Specific commit messages, not templates",
+      "required": true
+    },
+    {
+      "check": "git diff develop..HEAD",
+      "expected": "Changes make sense and are intentional",
+      "required": false
+    },
+    {
+      "check": "git status",
+      "expected": "No uncommitted changes (clean working tree)",
+      "required": true
+    }
+  ],
+  "pr_template": {
+    "title": "[MUST NOT CONTAIN: AI Slop, generic templates]",
+    "description_structure": [
+      {
+        "section": "What",
+        "required": true,
+        "content": "Describe exactly what was done (specific, not generic)"
+      },
+      {
+        "section": "Why",
+        "required": true,
+        "content": "Explain the technical reason"
+      },
+      {
+        "section": "How to Verify",
+        "required": false,
+        "content": "Specific steps or N/A"
+      },
+      {
+        "section": "Technical Notes",
+        "required": false,
+        "content": "Commit refs, limitations, decisions"
+      }
+    ],
+    "forbidden_phrases": [
+      "aims to",
+      "comprehensive",
+      "improve",
+      "optimize",
+      "refactor",
+      "enhancement",
+      "best practices",
+      "ensures",
+      "allows the user"
+    ]
+  },
+  "memory_references": {
+    "repository_scope": [
+      "Never author commits with AI identity; always use human developer identity",
+      "Never use generic AI-generated language (AI Slop) in PR descriptions, commit messages, or notices",
+      "Never perform direct merges into main or develop branches"
+    ]
+  },
+  "documentation": {
+    "in_repository": ".github/CONTRIBUTION_GUARDRAILS.md",
+    "in_session": "~/.copilot/session-state/.../RAILGUARDS.md",
+    "in_claude": ".claude/railguards.json (this file)"
+  }
+}
