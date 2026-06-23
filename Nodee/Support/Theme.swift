@@ -105,6 +105,11 @@ enum Theme {
         max(previewMinWidth, panelWidth * previewWidthFraction)
     }
 
+    /// Extra inset a content edge opens, at full handle proximity, so a
+    /// `PaneDivider`'s chevron (18 pt wide) lands in whitespace instead of over
+    /// content (buttonWidth/2 + breathing room). Scaled by the live reveal (0…1).
+    static let paneHandleGutter: CGFloat = 18
+
     /// Extra vertical room in the host window, below the expanded panel, so the
     /// drop shadow and the open "stretch" overshoot are never clipped.
     static let panelHostVerticalHeadroom: CGFloat = 96
@@ -115,6 +120,14 @@ enum Theme {
     static let panelOpen: Animation = .spring(response: 0.48, dampingFraction: 0.82)
     static let panelClose: Animation = .spring(response: 0.34, dampingFraction: 0.90)
     static let panelCloseDuration: TimeInterval = 0.36
+    /// Delays for the phased reveal: content and shadow appear after the shape
+    /// has already begun expanding, so the panel reads as a single solid block
+    /// rather than three layers opening simultaneously.
+    static let panelContentRevealDelay: TimeInterval = 0.15
+    static let panelShadowRevealDelay:  TimeInterval = 0.20
+    /// Fast fade used to dismiss content and shadow at the start of a close,
+    /// before the shape begins contracting — keeps the retraction clean.
+    static let panelOverlayDismiss: Animation = .easeOut(duration: 0.12)
     /// Spring the closed-state notch uses while it grows on hover / live drag.
     static let notchStretch: Animation = .spring(response: 0.36, dampingFraction: 0.80)
 
@@ -137,6 +150,10 @@ enum Theme {
     /// to toggle a side panel (Projects sidebar / Preview). Three fingers keeps it
     /// clear of the two-finger folder-depth navigation and the column pan.
     static let panelSwipeTravel: CGFloat = 0.16
+    /// How long the cursor must hover the Notch zone during a system-wide drag
+    /// before the panel auto-reveals. Shorter than the idle dwell to feel
+    /// responsive during the intentional act of dragging toward a target.
+    static let dragRevealDelay: TimeInterval = 0.3
 
     // Grabber — the bottom handle that pulls the expanded panel home to the
     // Notch (bottom-sheet idiom). Lives away from the canvas so it never

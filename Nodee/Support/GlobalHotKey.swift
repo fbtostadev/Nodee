@@ -14,8 +14,12 @@ import Carbon.HIToolbox
 nonisolated final class GlobalHotKey {
     /// ⌥⌘ — the modifier mask for the default shortcut.
     static let optionCommand = UInt32(optionKey | cmdKey)
+    /// ⌥ alone — modifier for the `⌥\` shortcut.
+    static let optionOnly = UInt32(optionKey)
     /// Virtual key code for "N".
     static let keyN = UInt32(kVK_ANSI_N)
+    /// Virtual key code for "\" (backslash).
+    static let keyBackslash = UInt32(kVK_ANSI_Backslash)
 
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?

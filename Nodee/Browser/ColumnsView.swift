@@ -12,6 +12,7 @@ import SwiftUI
 
 struct ColumnsView: View {
     @Bindable var vm: BrowserViewModel
+    @Environment(PanelPresentation.self) private var presentation
     /// Top/bottom content insets so each column scrolls edge-to-edge under the
     /// header and footer progressive-blur bands.
     var topInset: CGFloat = 0
@@ -80,8 +81,12 @@ struct ColumnsView: View {
                         .id(file.url)
                     }
                 }
-                .padding(.horizontal, 6)
+                // Static inset for the reveal-sidebar chevron, on column 0 only and
+                // only while the sidebar is collapsed — keyed to state, not hover.
+                .padding(.leading, 6 + (index == 0 && presentation.isSidebarCollapsed ? Theme.paneHandleGutter : 0))
+                .padding(.trailing, 6)
                 .padding(.vertical, 4)
+                .animation(.smooth(duration: 0.3), value: presentation.isSidebarCollapsed)
             }
             .contentMargins(.top, topInset, for: .scrollContent)
             .contentMargins(.bottom, bottomInset, for: .scrollContent)

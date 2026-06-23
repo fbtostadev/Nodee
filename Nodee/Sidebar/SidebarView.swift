@@ -15,6 +15,7 @@ import AppKit
 struct SidebarView: View {
     @Environment(\.modelContext) private var context
     @Environment(AppState.self) private var appState
+    @Environment(PanelPresentation.self) private var presentation
 
     let locations: [SidebarLocation]
     let projects: [PinnedProject]
@@ -38,6 +39,9 @@ struct SidebarView: View {
     @State private var dropTargetID: UUID?
     /// The Location row a drag is currently hovering over (for the drop highlight).
     @State private var dropTargetLocationID: URL?
+    /// Hover tracking — separate from drop so hovering without a drag also shows feedback.
+    @State private var hoveredLocationID: URL?
+    @State private var hoveredFavID: UUID?
 
     /// The Location whose folder is the deepest ancestor of (or equal to) the
     /// current directory — the one to highlight. Nil when an explicit favorite is
@@ -51,12 +55,19 @@ struct SidebarView: View {
     }
 
     var body: some View {
+        let totalWidth = width + presentation.sidebarTrailingReveal * Theme.paneHandleGutter
+        // Header and content are pinned to the base width; the Divider spans the
+        // full totalWidth so it fills the gutter that opens as the collapse handle
+        // nears — without reflowing any text or row content.
         VStack(alignment: .leading, spacing: 0) {
             header
+                .frame(width: width, alignment: .leading)
             Divider().overlay(Color.white.opacity(0.08))
             content
+                .frame(width: width, alignment: .leading)
         }
-        .frame(width: width)
+        .frame(width: totalWidth, alignment: .leading)
+        .animation(.smooth(duration: 0.35), value: presentation.sidebarTrailingReveal)
         .background(.black.opacity(0.18))
         .overlay {
             // The whole-sidebar "favorite here" border — suppressed while a
@@ -158,9 +169,16 @@ struct SidebarView: View {
     private func locationRow(_ location: SidebarLocation) -> some View {
         let isSelected = location.url.standardizedFileURL == activeLocationURL?.standardizedFileURL
         let isDropTarget = location.id == dropTargetLocationID
-        return rowLabel(systemImage: location.systemImage, name: location.name, isSelected: isSelected, isDropTarget: isDropTarget)
+        let isHovered = location.id == hoveredLocationID
+        return rowLabel(systemImage: location.systemImage, name: location.name,
+                        isSelected: isSelected, isDropTarget: isDropTarget, isHovered: isHovered)
             .contentShape(Rectangle())
             .onTapGesture { onSelectLocation(location) }
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.12)) {
+                    hoveredLocationID = hovering ? location.id : (hoveredLocationID == location.id ? nil : hoveredLocationID)
+                }
+            }
             .dropDestination(for: URL.self) { urls, _ in
                 onDropIntoLocation(urls, location.url, NSEvent.modifierFlags.contains(.option))
                 return true
@@ -172,9 +190,16 @@ struct SidebarView: View {
     private func favoriteRow(_ project: PinnedProject) -> some View {
         let isSelected = project.id == selectedFavoriteID
         let isDropTarget = project.id == dropTargetID
-        return rowLabel(systemImage: "folder.fill", name: project.name, isSelected: isSelected, isDropTarget: isDropTarget)
+        let isHovered = project.id == hoveredFavID
+        return rowLabel(systemImage: "folder.fill", name: project.name,
+                        isSelected: isSelected, isDropTarget: isDropTarget, isHovered: isHovered)
             .contentShape(Rectangle())
             .onTapGesture { onSelectFavorite(project) }
+            .onHover { hovering in
+                withAnimation(.easeOut(duration: 0.12)) {
+                    hoveredFavID = hovering ? project.id : (hoveredFavID == project.id ? nil : hoveredFavID)
+                }
+            }
             .dropDestination(for: URL.self) { urls, _ in
                 onDropFiles(urls, project, NSEvent.modifierFlags.contains(.option))
                 return true
@@ -186,30 +211,38 @@ struct SidebarView: View {
             }
     }
 
-    private func rowLabel(systemImage: String, name: String, isSelected: Bool, isDropTarget: Bool) -> some View {
+    private func rowLabel(systemImage: String, name: String,
+                          isSelected: Bool, isDropTarget: Bool, isHovered: Bool = false) -> some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
                 .font(.system(size: 13))
-                .foregroundStyle(isSelected ? Color.accentColor : .white.opacity(0.55))
+                // Hierarchical rendering gives folder icons natural visual depth
+                // (body lighter than the tab) without adding a second tint.
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(isSelected ? Color.accentColor : .white.opacity(isHovered ? 0.75 : 0.55))
                 .frame(width: 16)
             Text(name)
                 .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(.white.opacity(isSelected ? 0.95 : 0.75))
+                .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.88 : 0.75))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                // Selected rows turn semibold (wider) and can clip a name that fit
+                // when regular — scale it down slightly before truncating.
+                .minimumScaleFactor(0.82)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
         .frame(height: 32)
         .background(isDropTarget ? Color.accentColor.opacity(0.18)
-                    : isSelected ? Color.white.opacity(0.10) : .clear,
+                    : isSelected ? Color.white.opacity(0.10)
+                    : isHovered  ? Color.white.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 7))
         .overlay {
             RoundedRectangle(cornerRadius: 7)
                 .strokeBorder(Color.accentColor, lineWidth: 1.5)
                 .opacity(isDropTarget ? 1 : 0)
         }
-        // Ease the drop highlight in/out instead of snapping it.
+        .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeInOut(duration: 0.16), value: isDropTarget)
     }
 

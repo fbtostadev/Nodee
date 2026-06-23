@@ -1,0 +1,41 @@
+name: CI
+
+# Garante que o app compila antes de qualquer merge.
+# Roda em PRs para develop/main e em push direto nessas branches.
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# Cancela builds antigos do mesmo PR quando chega um commit novo.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (macOS)
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Versão do Xcode
+        run: xcodebuild -version
+
+      - name: Build
+        run: |
+          set -o pipefail
+          FORMATTER="cat"
+          if command -v xcbeautify >/dev/null 2>&1; then FORMATTER="xcbeautify"; fi
+          xcodebuild build \
+            -project Nodee.xcodeproj \
+            -scheme Nodee \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | $FORMATTER

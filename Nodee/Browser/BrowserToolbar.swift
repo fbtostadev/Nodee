@@ -18,6 +18,64 @@ struct BrowserToolbar: View {
     /// survives re-renders as the path mutates). Drives the per-crumb hover state.
     @State private var hoveredCrumb: URL?
 
+    /// Briefly flips the copy-path icon to a checkmark right after a copy, the
+    /// same momentary confirmation a browser's address-bar copy button gives.
+    @State private var didCopyPath = false
+
+    /// Which mode-picker button is currently hovered — drives the hover pill.
+    @State private var hoveredMode: DisplayMode?
+
+    // MARK: - Breadcrumb copy shimmer
+    // Fires when the user copies the directory path. A soft arc of ice-blue light
+    // sweeps the full URL border once — like a loading ring completing a cycle —
+    // then dissolves. One rotation (360°) in 2.0 s reads as deliberate/loading,
+    // not a flash. The gradient is a wide, bell-shaped arc (~120° of coverage)
+    // with 12 stops so there are no visible angular jumps between colours.
+    @State private var crumbShimmerAngle: Double  = 0
+    @State private var crumbShimmerOpacity: Double = 0
+    @State private var crumbShimmerTask: Task<Void, Never>?
+
+    private var crumbGlowColors: [Color] {
+        let a = Color(red: 0.55, green: 0.80, blue: 1.00)
+        // Bell-shaped arc: long gradual rise → soft peak → symmetric fall.
+        // Low peak opacity (0.28) and no hard .clear boundaries keep the sweep
+        // smooth — no angular hotspot flicker as the gradient rotates.
+        return [
+            a.opacity(0.00),  //  0° – leading tail
+            a.opacity(0.03),
+            a.opacity(0.08),
+            a.opacity(0.14),
+            a.opacity(0.20),
+            a.opacity(0.26),
+            a.opacity(0.28),  // apex
+            Color.white.opacity(0.09), // delicate white at the apex
+            a.opacity(0.24),
+            a.opacity(0.16),
+            a.opacity(0.08),
+            a.opacity(0.02),
+            a.opacity(0.00),  // 360° – matches 0° so the seam is invisible
+        ]
+    }
+
+    private func fireCrumbShimmer() {
+        crumbShimmerTask?.cancel()
+        // Start at 225° (bottom-left diagonal) — the arc enters from the corner,
+        // which reads as directional rather than arbitrary.
+        crumbShimmerAngle = 225
+        // Slow ease-in: the border materialises gently over 0.5 s.
+        withAnimation(.easeIn(duration: 0.50))         { crumbShimmerOpacity = 1 }
+        // easeInOut over 3.2 s: starts slow (loading), builds momentum,
+        // decelerates to rest (complete) — one unidirectional clockwise pass.
+        withAnimation(.easeInOut(duration: 3.2))        { crumbShimmerAngle   = 225 + 360 }
+        // Begin dissolving at 2.2 s — the fade overlaps the deceleration phase
+        // so the border softly "lands" as it completes rather than cutting off.
+        crumbShimmerTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(2200))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 1.0)) { crumbShimmerOpacity = 0 }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Spacer that fills the notch zone — the area is still "in" the toolbar
@@ -33,6 +91,7 @@ struct BrowserToolbar: View {
                     Spacer(minLength: 0)
                 }
                 Spacer(minLength: 0)
+                copyPathButton
                 newFolderButton
                 modePicker
             }
@@ -59,9 +118,21 @@ struct BrowserToolbar: View {
                     }
                 }
                 .padding(.vertical, 2)
-                // Animate crumbs blooming in / imploding out as the hierarchy
-                // changes — keeps gestural depth navigation feeling continuous.
                 .animation(.spring(response: 0.34, dampingFraction: 0.82), value: vm.breadcrumb.map(\.id))
+                // Shimmer wraps the full URL path as one unit — fires on copy-path.
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(
+                            AngularGradient(
+                                colors: crumbGlowColors,
+                                center: .center,
+                                angle: .degrees(crumbShimmerAngle)
+                            ),
+                            lineWidth: 1.5
+                        )
+                        .opacity(crumbShimmerOpacity)
+                        .allowsHitTesting(false)
+                }
             }
             .scrollIndicators(.never)
             // Keep the active (deepest) crumb in view as the path grows.
@@ -117,6 +188,33 @@ struct BrowserToolbar: View {
         ))
     }
 
+    /// Copies the current directory's path, flashing a checkmark to confirm —
+    /// like the "copy URL" button at the end of a browser's address bar.
+    private var copyPathButton: some View {
+        let enabled = vm.activeDirectory != nil
+        return Button {
+            vm.copyDirectoryPath()
+            presentation.reclaimGestureFocus()
+            withAnimation(.easeOut(duration: 0.15)) { didCopyPath = true }
+            fireCrumbShimmer()
+            Task {
+                try? await Task.sleep(for: .seconds(1.2))
+                withAnimation(.easeOut(duration: 0.2)) { didCopyPath = false }
+            }
+        } label: {
+            Image(systemName: didCopyPath ? "checkmark" : "link")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(didCopyPath ? Color.green.opacity(0.9)
+                                             : .white.opacity(enabled ? 0.7 : 0.22))
+                .contentTransition(.symbolEffect(.replace.offUp))
+                .frame(width: 34, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help("Copiar caminho (⌘⌥C)")
+    }
+
     private var newFolderButton: some View {
         toolbarButton("folder.badge.plus", help: "Nova pasta", enabled: vm.activeDirectory != nil) {
             vm.newFolder()
@@ -126,18 +224,29 @@ struct BrowserToolbar: View {
     private var modePicker: some View {
         HStack(spacing: 0) {
             ForEach(DisplayMode.allCases) { mode in
+                let isActive = vm.displayMode == mode
+                let isHovered = hoveredMode == mode
                 Button { vm.displayMode = mode; presentation.reclaimGestureFocus() } label: {
                     Image(systemName: mode.symbolName)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(vm.displayMode == mode ? .white : .white.opacity(0.45))
+                        .foregroundStyle(isActive ? .white : .white.opacity(isHovered ? 0.65 : 0.45))
+                        // Bounce the icon the moment this mode becomes active.
+                        .symbolEffect(.bounce.up.byLayer, value: isActive)
                         .frame(width: 28, height: 22)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(vm.displayMode == mode ? Color.white.opacity(0.14) : .clear)
+                                .fill(isActive  ? Color.white.opacity(0.14)
+                                      : isHovered ? Color.white.opacity(0.07) : .clear)
                         )
+                        .animation(.easeOut(duration: 0.12), value: isHovered)
                 }
                 .buttonStyle(.plain)
                 .help(mode.label)
+                .onHover { hovering in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        hoveredMode = hovering ? mode : (hoveredMode == mode ? nil : hoveredMode)
+                    }
+                }
             }
         }
         .padding(2)
@@ -145,17 +254,42 @@ struct BrowserToolbar: View {
     }
 
     private func toolbarButton(_ symbol: String, help: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button { action(); presentation.reclaimGestureFocus() } label: {
+        ToolbarButtonView(symbol: symbol, help: help, enabled: enabled) {
+            action(); presentation.reclaimGestureFocus()
+        }
+    }
+}
+
+// MARK: - ToolbarButtonView
+
+/// A single toolbar icon button with a native macOS hover pill.
+/// Extracted to its own struct so @State isHovered is scoped per-button
+/// without adding properties to the parent view.
+private struct ToolbarButtonView: View {
+    let symbol: String
+    let help: String
+    let enabled: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button { action() } label: {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(enabled ? .white.opacity(0.7) : .white.opacity(0.22))
+                .foregroundStyle(enabled ? .white.opacity(isHovered ? 0.9 : 0.7) : .white.opacity(0.22))
                 .frame(width: 34, height: 30)
-                // Without an explicit content shape a .plain button only hits
-                // the glyph's opaque pixels — make the whole frame tappable.
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(.white.opacity(enabled && isHovered ? 0.09 : 0))
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
         .help(help)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovered = enabled && hovering }
+        }
     }
 }

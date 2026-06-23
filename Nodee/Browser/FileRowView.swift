@@ -30,6 +30,7 @@ struct FileRowView: View {
     var onCancelRename: () -> Void = {}
 
     @State private var shakeOffset: CGFloat = 0
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -39,6 +40,7 @@ struct FileRowView: View {
             disclosure
             Image(systemName: file.kind.symbolName)
                 .font(.system(size: 12))
+                .symbolRenderingMode(file.kind == .folder ? .hierarchical : .monochrome)
                 .foregroundStyle(isSelected ? .white : file.kind.accentColor)
                 .frame(width: 18)
 
@@ -50,20 +52,23 @@ struct FileRowView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(isSelected ? .white : .white.opacity(0.85))
                     .lineLimit(1).truncationMode(.middle)
+                    // Keep the name whole whenever possible: it wins layout space
+                    // over the trailing metadata, and shrinks a touch before any
+                    // ellipsis ever appears.
+                    .minimumScaleFactor(0.78)
+                    .layoutPriority(1)
             }
 
             Spacer(minLength: 6)
 
             if showsMetadata {
-                Text(file.displaySize)
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? .white.opacity(0.8) : .white.opacity(0.4))
-                    .frame(width: 64, alignment: .trailing)
-                Text(file.displayModified)
-                    .font(.system(size: 11))
-                    .foregroundStyle(isSelected ? .white.opacity(0.8) : .white.opacity(0.4))
-                    .lineLimit(1)
-                    .frame(width: 92, alignment: .trailing)
+                // Metadata yields to the name: when the row is tight, drop the
+                // Modified column first, then Size, rather than truncating the name.
+                ViewThatFits(in: .horizontal) {
+                    metadata(showModified: true)
+                    metadata(showModified: false)
+                    EmptyView()
+                }
             }
 
             if showsChevron && file.isDirectory {
@@ -77,8 +82,12 @@ struct FileRowView: View {
         .offset(x: shakeOffset)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.accentColor.opacity(0.85) : .clear)
+                .fill(isSelected  ? Color.accentColor.opacity(0.85)
+                      : isHovered ? .white.opacity(0.07) : .clear)
         )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.1)) { isHovered = hovering }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(
@@ -100,6 +109,27 @@ struct FileRowView: View {
         }
     }
 
+    /// Trailing size (and optionally modified) columns. Right-aligned to fixed
+    /// widths so they stay column-aligned across rows; wrapped in a `ViewThatFits`
+    /// by the caller so the Modified column drops out before the name truncates.
+    private func metadata(showModified: Bool) -> some View {
+        let tint = isSelected ? Color.white.opacity(0.8) : .white.opacity(0.4)
+        return HStack(spacing: 6) {
+            Text(file.displaySize)
+                .font(.system(size: 11))
+                .foregroundStyle(tint)
+                .frame(width: 64, alignment: .trailing)
+            if showModified {
+                Text(file.displayModified)
+                    .font(.system(size: 11))
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .frame(width: 92, alignment: .trailing)
+            }
+        }
+        .fixedSize()
+    }
+
     @ViewBuilder
     private var disclosure: some View {
         if reservesDisclosure {
@@ -109,6 +139,9 @@ struct FileRowView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(isSelected ? .white : .white.opacity(0.5))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        // Decouple the rotation spring from the layout animation so
+                        // the triangle always snaps crisply regardless of row context.
+                        .animation(.spring(response: 0.28, dampingFraction: 0.68), value: isExpanded)
                         .frame(width: 14, height: 14)
                         .contentShape(Rectangle())
                 }

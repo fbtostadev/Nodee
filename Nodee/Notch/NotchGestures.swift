@@ -7,7 +7,6 @@
 //
 //    • Two-finger swipe DOWN while hovering the Notch     → expand the canvas.
 //    • Two/three-finger swipe UP over the bottom grabber  → condense to the Notch.
-//    • Three-finger swipe LEFT/RIGHT                       → toggle a side panel.
 //
 //  The open gesture is a global scroll monitor (the window isn't key while
 //  condensed, so it can't rely on the responder chain). The condense gesture
@@ -189,11 +188,6 @@ final class NotchGestureView: NSView {
     /// Fires once when a qualifying upward swipe crosses the commit threshold.
     var onCondense: (() -> Void)?
 
-    /// Fires once when a three-finger horizontal swipe crosses the commit
-    /// threshold. `swipeRight` is the direction; `cursorLocation` (screen coords)
-    /// lets the controller decide which side panel the swipe targets.
-    var onThreeFingerSwipe: ((_ swipeRight: Bool, _ cursorLocation: NSPoint) -> Void)?
-
     /// Gate: only honor the upward swipe while this returns true (pointer over
     /// the grabber). Defaults closed so the gesture is inert until wired.
     var shouldAllowCondense: () -> Bool = { false }
@@ -205,12 +199,6 @@ final class NotchGestureView: NSView {
     private var condenseTracking = false
     private var condenseFired = false
     private var condenseStartY: CGFloat = 0
-
-    // Panel toggle — horizontal three-finger swipe, anywhere.
-    private var swipeTracking = false
-    private var swipeFired = false
-    private var swipeStartX: CGFloat = 0
-    private var swipeStartY: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -243,7 +231,6 @@ final class NotchGestureView: NSView {
     private func update(with event: NSEvent) {
         let touches = event.touches(matching: .touching, in: self)
         updateCondense(touches)
-        updatePanelSwipe(touches)
     }
 
     /// Upward 2/3-finger swipe over the grabber ⇒ condense to the Notch.
@@ -266,43 +253,14 @@ final class NotchGestureView: NSView {
         onCondense?()
     }
 
-    /// Horizontal three-finger swipe (anywhere) ⇒ toggle a side panel. The
-    /// controller routes it to the sidebar or preview by the cursor's side.
-    private func updatePanelSwipe(_ touches: Set<NSTouch>) {
-        guard touches.count == 3 else {
-            swipeTracking = false
-            swipeFired = false
-            return
-        }
-        let x = averageX(touches)
-        let y = averageY(touches)
-        if !swipeTracking {
-            swipeTracking = true
-            swipeFired = false
-            swipeStartX = x
-            swipeStartY = y
-            return
-        }
-        let dx = x - swipeStartX
-        let dy = y - swipeStartY
-        // Commit only a horizontal-dominant swipe past the threshold, so it never
-        // collides with the three-finger condense (which grows in Y).
-        guard !swipeFired, abs(dx) > Theme.panelSwipeTravel, abs(dx) > abs(dy) else { return }
-        swipeFired = true
-        // normalizedPosition.x grows to the right.
-        onThreeFingerSwipe?(dx > 0, NSEvent.mouseLocation)
-    }
-
     override func touchesBegan(with event: NSEvent) { update(with: event) }
     override func touchesMoved(with event: NSEvent) { update(with: event) }
 
     override func touchesEnded(with event: NSEvent) {
         condenseTracking = false; condenseFired = false
-        swipeTracking = false; swipeFired = false
     }
 
     override func touchesCancelled(with event: NSEvent) {
         condenseTracking = false; condenseFired = false
-        swipeTracking = false; swipeFired = false
     }
 }

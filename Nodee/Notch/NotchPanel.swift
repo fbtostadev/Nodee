@@ -30,6 +30,9 @@ final class NotchPanel: NSPanel {
         hasShadow = false // the SwiftUI surface draws its own shadow
         isMovableByWindowBackground = false
         hidesOnDeactivate = false
+        // Deliver mouse-moved events to the window so local NSEvent monitors (e.g.
+        // PaneDivider's proximity tracker) hear cursor motion over our own surface.
+        acceptsMouseMovedEvents = true
         animationBehavior = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     }

@@ -42,10 +42,44 @@ final class PanelPresentation {
     /// three-finger swipe (which collapses / expands it).
     var isSidebarCollapsed: Bool = false
 
+    // MARK: - Pane-handle gutter reveal
+
+    /// Which collapsible pane reserves empty edge space as its divider's handle
+    /// nears. Only the two between-pane dividers (sidebar, preview) drive this —
+    /// the pane *widens* into reserved whitespace while its content stays pinned to
+    /// its base width, so directory text never reflows or resizes on hover. The
+    /// edge expand-handles use a static inset keyed to collapse state instead.
+    enum GutterEdge { case sidebarTrailing, previewLeading }
+
+    /// Proximity-driven reveal amounts (0…1), published by the between-pane
+    /// dividers and read by the adjacent pane to widen by the gutter. 0 = relaxed.
+    var sidebarTrailingReveal: CGFloat = 0
+    var previewLeadingReveal: CGFloat = 0
+
+    /// Route a divider's proximity into its gutter slot. Nil = the divider drives
+    /// no inset (the edge expand-handles).
+    func setGutterReveal(_ edge: GutterEdge?, _ value: CGFloat) {
+        switch edge {
+        case .sidebarTrailing: if sidebarTrailingReveal != value { sidebarTrailingReveal = value }
+        case .previewLeading:  if previewLeadingReveal  != value { previewLeadingReveal  = value }
+        case .none: break
+        }
+    }
+
     /// Set the side Preview pane's visibility. Wired by the browser surface so the
     /// controller's three-finger swipe can toggle it — the controller can't reach
     /// the BrowserViewModel directly.
     var setPreviewVisible: ((Bool) -> Void)?
+
+    /// The screen the panel is currently anchored to — the display under the
+    /// pointer, resolved by the controller when opening and on display
+    /// reconfiguration. The SwiftUI surface derives its Notch geometry (size,
+    /// `panelScale`, Notch-vs-pill shape) from this so it always agrees with the
+    /// display the host window was placed on. Without a shared source of truth the
+    /// window and content disagree about the screen when moving between the
+    /// built-in display and an external monitor, producing a wrong-sized /
+    /// clipped panel.
+    var activeScreen: NSScreen? = NotchGeometry.activeScreen()
 
     /// Return first responder to the Notch gesture view. SwiftUI buttons (toolbar,
     /// breadcrumb) steal it on click, which silences the indirect-touch gestures

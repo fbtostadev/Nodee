@@ -18,12 +18,10 @@ final class NotchPanelController {
     private let gestureView = NotchGestureView(frame: CGRect(origin: .zero, size: NotchGeometry.panelSize(for: NSScreen.main)))
     private let presentation = PanelPresentation()
     private let openMonitor = NotchOpenGestureMonitor()
+    private let dragRevealMonitor = DragRevealMonitor()
     private let appState: AppState
 
     private var escMonitor: Any?
-
-    /// Which side panel a three-finger swipe targets, by the cursor's position.
-    private enum PanelZone { case sidebar, preview, none }
 
     var isOpen: Bool { presentation.isExpanded }
 
@@ -51,10 +49,6 @@ final class NotchPanelController {
         gestureView.onCondense = { [weak self] in self?.close() }
         // Only honor the upward finger-swipe while the pointer is over the grabber.
         gestureView.shouldAllowCondense = { [weak self] in self?.presentation.isHoveringGrabber ?? false }
-        // A three-finger horizontal swipe toggles the side panel under the cursor.
-        gestureView.onThreeFingerSwipe = { [weak self] swipeRight, location in
-            self?.handlePanelSwipe(swipeRight: swipeRight, at: location)
-        }
         // The SwiftUI grabber's tap / drag-up commit routes here.
         presentation.requestCondense = { [weak self] in self?.close() }
         // SwiftUI controls steal first responder on click, muting the indirect-touch
@@ -63,6 +57,8 @@ final class NotchPanelController {
             guard let self, self.isOpen else { return }
             self.panel.makeFirstResponder(self.gestureView)
         }
+
+        configureDragRevealMonitor()
 
         configureOpenMonitor()
     }
@@ -73,6 +69,7 @@ final class NotchPanelController {
         positionWindow()
         panel.orderFrontRegardless()
         openMonitor.start()
+        dragRevealMonitor.start()
         observeScreenChanges()
     }
 
@@ -146,11 +143,21 @@ final class NotchPanelController {
         openMonitor.onCommit = { [weak self] in self?.open() }
     }
 
+    private func configureDragRevealMonitor() {
+        dragRevealMonitor.shouldTrack = { [weak self] in self?.isOpen == false }
+        dragRevealMonitor.onReveal = { [weak self] in self?.open() }
+    }
+
     // MARK: - Geometry
 
     private func positionWindow() {
         guard let screen = NotchGeometry.activeScreen() else { return }
         panel.setFrame(NotchGeometry(screen: screen).hostWindowFrame, display: true)
+        // Publish the resolved screen so the SwiftUI surface sizes its geometry
+        // against the *same* display the host window was just placed on. This is
+        // the single source of truth for "which screen" — keeping window and
+        // content in sync as the panel moves between built-in and external.
+        presentation.activeScreen = screen
     }
 
     private func observeScreenChanges() {
@@ -189,46 +196,4 @@ final class NotchPanelController {
         }
     }
 
-    // MARK: - Three-finger swipe to toggle a side panel
-    //
-    // A three-finger horizontal swipe toggles the side panel under the cursor
-    // (never closes the panel — that stays intentional). Three fingers keeps it
-    // clear of the two-finger folder-depth navigation and the column pan. The
-    // raw multitouch is read by `NotchGestureView` (first responder); here we
-    // only route the committed swipe by the cursor's side:
-    //   • over the sidebar (or its left-margin strip when collapsed): swipe right
-    //     reveals it, left hides it;
-    //   • anywhere to the right: swipe right hides the Preview, left reveals it.
-
-    private func handlePanelSwipe(swipeRight: Bool, at screenLocation: NSPoint) {
-        switch panelZone(at: screenLocation) {
-        case .sidebar:
-            // Swipe right reveals the sidebar, swipe left hides it.
-            setSidebarCollapsed(!swipeRight)
-        case .preview:
-            // Swipe right hides the Preview, swipe left reveals it.
-            presentation.setPreviewVisible?(!swipeRight)
-        case .none:
-            break
-        }
-    }
-
-    /// Which side panel the cursor sits over. Uses a 40/60 percentage split so the
-    /// sidebar zone is comfortable regardless of its actual rendered width.
-    private func panelZone(at screenLocation: NSPoint) -> PanelZone {
-        guard let screen = NotchGeometry.activeScreen() else { return .none }
-        let panelWidth = NotchGeometry(screen: screen).panelSize.width
-        // The content is centered in the full-width host window.
-        let panelLeft = panel.frame.minX + (panel.frame.width - panelWidth) / 2
-        let x = screenLocation.x - panelLeft
-        guard x >= 0, x <= panelWidth else { return .none }
-        return (x / panelWidth) < 0.4 ? .sidebar : .preview
-    }
-
-    /// Collapse / expand the Projects sidebar — same effect as the toolbar toggle.
-    private func setSidebarCollapsed(_ collapsed: Bool) {
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-            presentation.isSidebarCollapsed = collapsed
-        }
-    }
 }
