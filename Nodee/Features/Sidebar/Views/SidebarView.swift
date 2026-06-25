@@ -13,10 +13,9 @@ import SwiftData
 import AppKit
 
 struct SidebarView: View {
-    @Environment(\.modelContext) private var context
-    @Environment(AppState.self) private var appState
     @Environment(PanelPresentation.self) private var presentation
 
+    let vm: SidebarViewModel
     let locations: [SidebarLocation]
     let projects: [PinnedProject]
     /// The directory currently in view — used to light up the matching Location.
@@ -133,7 +132,7 @@ struct SidebarView: View {
             Color.clear
                 .contentShape(Rectangle())
                 .dropDestination(for: URL.self) { urls, _ in
-                    pin(urls); return true
+                    vm.pin(urls, existingProjects: projects); return true
                 } isTargeted: { isDropTargeted = $0 }
         }
     }
@@ -152,7 +151,7 @@ struct SidebarView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.35))
             Spacer()
-            Button(action: addViaPanel) {
+            Button { vm.addViaPanel(existingProjects: projects) } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .bold))
             }
@@ -207,7 +206,7 @@ struct SidebarView: View {
                 dropTargetID = targeted ? project.id : (dropTargetID == project.id ? nil : dropTargetID)
             }
             .contextMenu {
-                Button("Remover dos favoritos", role: .destructive) { remove(project) }
+                Button("Remover dos favoritos", role: .destructive) { vm.remove(project) }
             }
     }
 
@@ -246,50 +245,4 @@ struct SidebarView: View {
         .animation(.easeInOut(duration: 0.16), value: isDropTarget)
     }
 
-    // MARK: - Actions
-
-    private func pin(_ urls: [URL]) {
-        let directories = urls.filter {
-            let values = try? $0.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
-            // Only real folders are pinnable projects — not bundles like .app/.pages.
-            return values?.isDirectory == true && values?.isPackage != true
-        }
-        var nextIndex = (projects.map(\.sortIndex).max() ?? -1) + 1
-        for directory in directories {
-            guard let bookmark = SecurityScopedBookmark.make(for: directory) else { continue }
-            let project = PinnedProject(
-                name: directory.lastPathComponent,
-                bookmark: bookmark,
-                sortIndex: nextIndex
-            )
-            context.insert(project)
-            nextIndex += 1
-        }
-        try? context.save()
-    }
-
-    private func addViaPanel() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Adicionar"
-        panel.message = "Escolha uma ou mais pastas para adicionar aos favoritos"
-        // The Nodee panel floats at `.statusBar` and is rendered out-of-process by
-        // Powerbox (it ignores the open panel's own level), so lower the Notch for
-        // the duration to keep the picker from hiding behind it.
-        NSApp.activate()
-        let response = appState.runWithPanelLowered { panel.runModal() }
-        if response == .OK {
-            pin(panel.urls)
-        }
-    }
-
-    private func remove(_ project: PinnedProject) {
-        if let resolved = SecurityScopedBookmark.resolve(project.bookmark) {
-            appState.endAccess(resolved.url)
-        }
-        context.delete(project)
-        try? context.save()
-    }
 }

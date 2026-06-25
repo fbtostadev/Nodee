@@ -15,11 +15,8 @@ struct PanelRootView: View {
     @Environment(PanelPresentation.self) private var presentation
     @Query(sort: \PinnedProject.sortIndex) private var projects: [PinnedProject]
 
-    @State private var browser: BrowserViewModel
-    @State private var toast = ToastCenter()
-    /// The favorite explicitly opened (sidebar highlight). Locations highlight
-    /// themselves live off the current directory.
-    @State private var selectedFavoriteID: UUID?
+    @State private var panelVM: PanelViewModel
+    @State private var sidebarVM: SidebarViewModel
     /// Independent visibility state for the content and shadow, driven by the
     /// onChange orchestrator below. Keeping them separate from `isExpanded`
     /// gives each layer its own animation timeline so the panel reads as a
@@ -36,6 +33,17 @@ struct PanelRootView: View {
     }
 
     private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
+    private var browser: BrowserViewModel { panelVM.browser }
+
+    /// Vertical shift that tucks the compact Notch above the top edge on displays
+    /// that conceal it (external monitors / fullscreen), bringing it back down as
+    /// the pointer nears the top-centre. Zero while expanded or on the always-on
+    /// built-in notch, so nothing changes there.
+    private var concealOffset: CGFloat {
+        guard presentation.concealsNotch, !presentation.isExpanded else { return 0 }
+        let hiddenDistance = geometry.closedHeight + 10
+        return -hiddenDistance * (1 - presentation.notchReveal)
+    }
 
     /// How much the whole panel widens to fund a near handle's gutter: the sum of
     /// the active edge reveals × the gutter. The Notch expands horizontally instead
@@ -55,8 +63,10 @@ struct PanelRootView: View {
         }
     }
 
-    init(container: ModelContainer) {
-        _browser = State(initialValue: BrowserViewModel(container: container))
+    init(container: ModelContainer, appState: AppState) {
+        let browser = BrowserViewModel(container: container)
+        _panelVM = State(initialValue: PanelViewModel(appState: appState, browser: browser))
+        _sidebarVM = State(initialValue: SidebarViewModel(container: container, appState: appState))
     }
 
     var body: some View {
@@ -90,14 +100,14 @@ struct PanelRootView: View {
         // shape a menu-bar's height too low. Ignore it so the shape is flush
         // with the hardware notch / top edge.
         .ignoresSafeArea()
-        .offset(y: -6)
+        .offset(y: -6 + concealOffset)
         .onAppear {
-            browser.toast = toast
-            appState.resolveHomeAccess()
-            restoreSession()
+            panelVM.onAppear()
         }
         .animation(presentation.isExpanded ? Theme.panelOpen : Theme.panelClose, value: presentation.isExpanded)
         .animation(Theme.notchStretch, value: presentation.isHoveringNotch)
+        // Slide the concealed Notch up out of view and back as the pointer nears.
+        .animation(Theme.notchStretch, value: concealOffset)
         // Discreet, smooth horizontal growth as a pane handle is approached.
         .animation(.smooth(duration: 0.35), value: gutterWidthBoost)
         // Phase orchestrator: content and shadow have independent timelines so the
@@ -148,16 +158,29 @@ struct PanelRootView: View {
         let peekGrowth = presentation.openProgress * Theme.notchPeekGrowth
         let width = geometry.closedWidth + presentation.openProgress * 8
         let height = geometry.closedHeight + hoverGrowth + peekGrowth
+        // While concealed (external display / fullscreen) the compact shape reads
+        // as a notch flush to the top edge — flat top, rounded bottom — so the
+        // reveal peeks down like the hardware notch instead of a floating pill.
+        let notchShaped = geometry.hasNotch || presentation.concealsNotch
         return ShapeMetrics(
             width: width,
             height: height,
-            topCorner: geometry.hasNotch ? 0 : height / 2,
-            bottomCorner: geometry.hasNotch ? min(14, height / 2) : height / 2
+            topCorner: notchShaped ? 0 : height / 2,
+            bottomCorner: notchShaped ? min(14, height / 2) : height / 2
         )
     }
 
+    /// Whether the panel draws as a notch (independent top/bottom corners) rather
+    /// than a fully-rounded pill: physical notch screens always, plus concealed
+    /// displays (so the compact peek stays flush to the edge). Kept true through
+    /// the expand so the shape type never swaps mid-morph — expanded just rounds
+    /// the top corners back via the metrics.
+    private var usesNotchShape: Bool {
+        geometry.hasNotch || presentation.concealsNotch
+    }
+
     private func panelShape(_ metrics: ShapeMetrics) -> AnyShape {
-        if geometry.hasNotch {
+        if usesNotchShape {
             AnyShape(NotchShape(topCornerRadius: metrics.topCorner, bottomCornerRadius: metrics.bottomCorner))
         } else {
             AnyShape(DynamicIslandPillShape(cornerRadius: metrics.bottomCorner))
@@ -169,16 +192,17 @@ struct PanelRootView: View {
         return HStack(spacing: 0) {
             if !isSidebarCollapsed {
                 SidebarView(
+                    vm: sidebarVM,
                     locations: locations,
                     projects: projects,
                     currentDirectory: browser.currentDirectory,
-                    selectedFavoriteID: selectedFavoriteID,
+                    selectedFavoriteID: panelVM.selectedFavoriteID,
                     width: Theme.sidebarWidth(panelWidth: panelWidth),
-                    onSelectLocation: openLocation,
-                    onSelectFavorite: openFavorite,
+                    onSelectLocation: { panelVM.openLocation($0) },
+                    onSelectFavorite: { panelVM.openFavorite($0) },
                     onCollapse: { setSidebarCollapsed(true) },
-                    onDropFiles: dropFiles,
-                    onDropIntoLocation: dropFilesIntoLocation
+                    onDropFiles: { panelVM.dropFiles($0, into: $1, copy: $2) },
+                    onDropIntoLocation: { panelVM.dropFilesIntoLocation($0, into: $1, copy: $2) }
                 )
                 .transition(.move(edge: .leading).combined(with: .opacity))
 
@@ -250,13 +274,13 @@ struct PanelRootView: View {
         }
         .overlay(alignment: .bottom) {
             // Transient confirmation / Undo, floated just above the grabber.
-            if let current = toast.current {
-                ToastView(toast: current, center: toast)
+            if let current = panelVM.toast.current {
+                ToastView(toast: current, center: panelVM.toast)
                     .padding(.bottom, Theme.grabberHitHeight + 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: toast.current?.id)
+        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: panelVM.toast.current?.id)
     }
 
     /// First-run gate: with no Home grant the browser has nothing to show, so we
@@ -273,7 +297,7 @@ struct PanelRootView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.white.opacity(0.55))
                 .multilineTextAlignment(.center)
-            Button(action: grantHomeAccess) {
+            Button { panelVM.grantHomeAccess() } label: {
                 Text("Conceder acesso à pasta pessoal")
                     .font(.system(size: 12, weight: .semibold))
                     .padding(.horizontal, 14)
@@ -288,57 +312,4 @@ struct PanelRootView: View {
         .background(Theme.panelBackground)
     }
 
-    // MARK: - Actions
-
-    /// Open a standard Location (under the granted Home). Its access root is the
-    /// broadest grant containing it — Home — so the user can climb back up to it.
-    private func openLocation(_ location: SidebarLocation) {
-        guard let root = appState.accessRoot(containing: location.url) else { return }
-        selectedFavoriteID = nil
-        browser.go(to: location.url, accessRoot: root)
-    }
-
-    /// Open a Favorite. Resolving its bookmark starts security-scoped access; the
-    /// access root is its own folder (favorites may live outside Home).
-    private func openFavorite(_ project: PinnedProject) {
-        guard let url = appState.beginAccess(project) else { return }
-        let root = appState.accessRoot(containing: url) ?? url
-        selectedFavoriteID = project.id
-        browser.go(to: url, accessRoot: root)
-    }
-
-    /// Files dropped onto a favorite's row: move (or ⌥-copy) them into that folder
-    /// on disk. Resolving the bookmark starts security-scoped access; the browser
-    /// records the operation for undo and toasts the confirmation.
-    private func dropFiles(_ urls: [URL], into project: PinnedProject, copy: Bool) {
-        guard let folder = appState.beginAccess(project) else { return }
-        browser.move(urls, into: folder, copy: copy)
-    }
-
-    /// Files dropped onto a Location row: move (or ⌥-copy) into that standard
-    /// folder. Locations live under the Home grant, already security-scoped, so
-    /// the URL is moved into directly — no per-location bookmark to resolve.
-    private func dropFilesIntoLocation(_ urls: [URL], into folder: URL, copy: Bool) {
-        browser.move(urls, into: folder, copy: copy)
-    }
-
-    private func grantHomeAccess() {
-        guard appState.grantHomeAccess() != nil else { return }
-        restoreSession()
-    }
-
-    /// On launch / after granting: restore the last visited directory (if still
-    /// reachable under a granted root), else land in Home. No-op without a grant —
-    /// the CTA shows instead.
-    private func restoreSession() {
-        guard let home = appState.homeURL else { return }
-        let last = browser.lastVisitedDirectory()
-        if let last, FileSystemService.exists(last),
-           let root = appState.accessRoot(containing: last) {
-            selectedFavoriteID = nil
-            browser.go(to: last, accessRoot: root)
-        } else {
-            browser.go(to: home, accessRoot: home)
-        }
-    }
 }

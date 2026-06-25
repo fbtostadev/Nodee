@@ -23,12 +23,16 @@ final class NotchPanelController {
 
     private var escMonitor: Any?
 
+    /// Global + local `mouseMoved` monitors that drive the conceal/reveal peek
+    /// while the Notch is hidden (external display / fullscreen).
+    private var revealMonitors: [Any] = []
+
     var isOpen: Bool { presentation.isExpanded }
 
     init(appState: AppState, container: ModelContainer) {
         self.appState = appState
 
-        let root = PanelRootView(container: container)
+        let root = PanelRootView(container: container, appState: appState)
             .environment(appState)
             .environment(presentation)
             .modelContainer(container)
@@ -70,7 +74,10 @@ final class NotchPanelController {
         panel.orderFrontRegardless()
         openMonitor.start()
         dragRevealMonitor.start()
+        startRevealTracking()
         observeScreenChanges()
+        observeSpaceChanges()
+        updateConcealState()
     }
 
     // MARK: - Commands
@@ -115,13 +122,16 @@ final class NotchPanelController {
         presentation.grabberDragProgress = 0
         appState.isPanelOpen = false
         // The window stays on screen as the compact Notch — never ordered out,
-        // so the open gesture always has a target to grab.
+        // so the open gesture always has a target to grab. On a concealing
+        // display, re-tuck it above the edge unless the pointer is still near.
+        refreshReveal()
     }
 
     // MARK: - Open gesture wiring
 
     private func configureOpenMonitor() {
         openMonitor.shouldTrack = { [weak self] in self?.isOpen == false }
+        openMonitor.isConcealed = { [weak self] in self?.presentation.concealsNotch ?? false }
 
         openMonitor.onHoverChange = { [weak self] hovering in
             guard let self, !self.isOpen else { return }
@@ -158,6 +168,81 @@ final class NotchPanelController {
         // the single source of truth for "which screen" — keeping window and
         // content in sync as the panel moves between built-in and external.
         presentation.activeScreen = screen
+        updateConcealState()
+    }
+
+    // MARK: - Conceal / reveal (external display + fullscreen)
+
+    /// Decide whether the active display should hide the compact Notch until the
+    /// pointer approaches: external monitors (no hardware notch) and any display
+    /// whose menu bar is hidden (a fullscreen app, or auto-hide). The built-in
+    /// notched display in windowed mode keeps the Notch always visible.
+    private func updateConcealState() {
+        guard let screen = presentation.activeScreen else { return }
+        let geometry = NotchGeometry(screen: screen)
+        let conceal = !geometry.hasNotch || geometry.menuBarHidden
+        if presentation.concealsNotch != conceal {
+            withAnimation(Theme.notchStretch) {
+                presentation.concealsNotch = conceal
+                // Leaving conceal mode pins it fully visible again.
+                presentation.notchReveal = conceal ? 0 : 1
+            }
+        }
+        // Whether newly concealing or already concealed, settle the peek against
+        // where the pointer is right now.
+        refreshReveal()
+    }
+
+    /// Match the reveal peek to the current pointer position: peeked while the
+    /// cursor is in the top-centre band, tucked away otherwise. No-op while the
+    /// panel isn't concealing or is expanded.
+    private func refreshReveal() {
+        guard presentation.concealsNotch, !isOpen else { return }
+        guard let screen = NotchGeometry.activeScreen() else { return }
+        let geometry = NotchGeometry(screen: screen)
+        // Peek the compact Notch only while the pointer is squarely over its
+        // footprint; tuck it away otherwise. No wider proximity band, so an app's
+        // top chrome stays reachable in fullscreen.
+        let over = geometry.notchActivateRect.contains(NSEvent.mouseLocation)
+        setReveal(over ? Theme.notchNearPeek : 0)
+    }
+
+    private func setReveal(_ value: CGFloat) {
+        guard presentation.notchReveal != value else { return }
+        withAnimation(Theme.notchStretch) { presentation.notchReveal = value }
+    }
+
+    private func startRevealTracking() {
+        let handler: (NSEvent) -> Void = { [weak self] _ in
+            self?.followCursorScreenIfNeeded()
+            self?.refreshReveal()
+        }
+        revealMonitors = [
+            NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { handler($0) },
+            NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { handler($0); return $0 }
+        ].compactMap { $0 }
+    }
+
+    /// Move the compact Notch to whatever display the cursor is now on. The host
+    /// window otherwise stays put on the display it was last placed on, so a peek
+    /// triggered while the cursor is on another monitor would surface on the wrong
+    /// screen. Only follows while condensed — never yank an open panel between
+    /// displays mid-use. Repositioning also refreshes conceal state + geometry for
+    /// the new screen, so the fullscreen behaviour is unchanged per display.
+    private func followCursorScreenIfNeeded() {
+        guard !isOpen, let cursorScreen = NotchGeometry.activeScreen() else { return }
+        guard cursorScreen != presentation.activeScreen else { return }
+        positionWindow()
+    }
+
+    private func observeSpaceChanges() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateConcealState() }
+        }
     }
 
     private func observeScreenChanges() {

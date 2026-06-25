@@ -16,10 +16,7 @@ struct PreviewPane: View {
     let width: CGFloat
 
     @Environment(PanelPresentation.self) private var presentation
-
-    /// Cached folder listing, loaded once per file instead of re-reading disk on
-    /// every body render. Only populated for folders (see .task below).
-    @State private var folderChildren: [FileNode] = []
+    @State private var vm = PreviewViewModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,16 +31,7 @@ struct PreviewPane: View {
         .frame(width: width + presentation.previewLeadingReveal * Theme.paneHandleGutter, alignment: .trailing)
         .animation(.smooth(duration: 0.35), value: presentation.previewLeadingReveal)
         .background(.black.opacity(0.18))
-        .task(id: file.url) {
-            // Read the disk once when the previewed file changes; skip the I/O for
-            // non-folders, which never use the cached listing. Off the main actor so
-            // a large folder's contentsOfDirectory scan never stalls the panel.
-            guard file.isDirectory else { folderChildren = []; return }
-            let url = file.url
-            folderChildren = await Task.detached(priority: .utility) {
-                FileSystemService.children(of: url)
-            }.value
-        }
+        .task(id: file.url) { await vm.load(for: file) }
     }
 
     // MARK: - Header
@@ -89,7 +77,7 @@ struct PreviewPane: View {
     /// — at most scrollable — not as a navigable list inviting clicks.
     @ViewBuilder
     private var folderListing: some View {
-        if folderChildren.isEmpty {
+        if vm.folderChildren.isEmpty {
             VStack(spacing: 6) {
                 Image(systemName: "folder")
                     .font(.system(size: 22, weight: .light))
@@ -102,14 +90,14 @@ struct PreviewPane: View {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    Text("Conteúdo · \(folderChildren.count) \(folderChildren.count == 1 ? "item" : "itens")")
+                    Text("Conteúdo · \(vm.folderChildren.count) \(vm.folderChildren.count == 1 ? "item" : "itens")")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.white.opacity(0.35))
                         .padding(.horizontal, 14)
                         .padding(.top, 10)
                         .padding(.bottom, 6)
 
-                    ForEach(folderChildren) { child in
+                    ForEach(vm.folderChildren) { child in
                         HStack(spacing: 7) {
                             Image(systemName: child.kind.symbolName)
                                 .font(.system(size: 10))
@@ -142,7 +130,7 @@ struct PreviewPane: View {
                     metaRow("Modificado", file.displayModified)
                 }
                 Button {
-                    FileSystemService.open(file.url)
+                    vm.open(file)
                 } label: {
                     Label("Abrir no app padrão", systemImage: "arrow.up.forward.app")
                         .font(.system(size: 12, weight: .medium))

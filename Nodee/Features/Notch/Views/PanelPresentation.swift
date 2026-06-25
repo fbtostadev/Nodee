@@ -19,6 +19,18 @@ final class PanelPresentation {
     /// grow that invites the open gesture.
     var isHoveringNotch: Bool = false
 
+    /// True when the active display should hide the compact Notch until the
+    /// pointer approaches the top-centre: external monitors (no hardware notch)
+    /// and any display showing a fullscreen app (menu bar hidden). On the
+    /// built-in notched display in windowed mode this stays false and the Notch
+    /// is always visible, exactly as before.
+    var concealsNotch: Bool = false
+
+    /// Reveal amount for the concealed Notch: 0 = tucked above the top edge,
+    /// 1 = peeked fully into view. Driven by pointer proximity to the
+    /// top-centre. Ignored while `concealsNotch` is false.
+    var notchReveal: CGFloat = 0
+
     /// Live progress of the in-flight two-finger open gesture, 0…1. Only
     /// meaningful while `isExpanded == false`; lets the closed notch peek down
     /// under the finger (rubber band) before the open commits.
