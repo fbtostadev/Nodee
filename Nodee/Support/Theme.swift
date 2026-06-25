@@ -144,4 +144,29 @@ enum Theme {
     static let dotMatrixActiveOpacity: Double = 1.0
     /// Trail decay per cell for comet-style motion (head 1.0 → 0.45 → 0.20 → …).
     static let dotMatrixTrailDecay: Double = 0.45
+
+    // EdgePane — a collapsible side pane that morphs between a full-width card and
+    // a thin edge tab (chevron handle) as it condenses. Geometry interpolates on a
+    // 0…1 `progress`; the glow keeps the soft "light from the Lens" feel of the
+    // Iris indicator. Open width comes from the caller; these size the tab and the
+    // morph between the two shapes.
+    /// Width of the condensed tab — the thin strip the pane shrinks to (the
+    /// chevron handle lives here, mirroring `paneHandleGutter`'s breathing room).
+    static let edgePaneTabWidth: CGFloat = 22
+    /// Height of the condensed tab pill — a comfortable vertical touch target.
+    static let edgePaneTabHeight: CGFloat = 56
+    /// Corner radius of the condensed tab (the chevron pill).
+    static let edgePaneTabCorner: CGFloat = 7
+    /// Corner radius of the open card's inner edge (the side facing the content).
+    static let edgePaneCardCorner: CGFloat = 16
+    /// Spring for the open ↔ condensed morph — settled, minimal overshoot, in step
+    /// with the rest of the panel's motion.
+    static let edgePaneMorph: Animation = .spring(response: 0.42, dampingFraction: 0.82)
+    /// Glow tint behind the card and tab — a soft white bloom (Iris-consistent),
+    /// kept subtle through the peak/rest opacity scalars below.
+    static let edgePaneGlow = Color.white
+    /// Peak glow opacity at the height of the morph (modulated by the bell curve).
+    static let edgePaneGlowPeak: Double = 0.5
+    /// Resting glow opacity of the tab handle when relaxed (lifts on approach).
+    static let edgePaneGlowRest: Double = 0.3
 }
