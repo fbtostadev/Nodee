@@ -32,7 +32,7 @@ final class NotchPanelController {
     init(appState: AppState, container: ModelContainer) {
         self.appState = appState
 
-        let root = PanelRootView(container: container)
+        let root = PanelRootView(container: container, appState: appState)
             .environment(appState)
             .environment(presentation)
             .modelContainer(container)
