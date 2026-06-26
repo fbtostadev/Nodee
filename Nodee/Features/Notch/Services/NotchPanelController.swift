@@ -103,6 +103,8 @@ final class NotchPanelController {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(gestureView) // so the finger gestures are heard
         installEscapeMonitor()
+        panel.level = .floating
+        positionWindow()
 
         withAnimation(Theme.panelOpen) {
             presentation.openProgress = 0
@@ -121,6 +123,8 @@ final class NotchPanelController {
         presentation.isHoveringGrabber = false
         presentation.grabberDragProgress = 0
         appState.isPanelOpen = false
+        panel.level = .statusBar
+        positionWindow()
         // The window stays on screen as the compact Notch — never ordered out,
         // so the open gesture always has a target to grab. On a concealing
         // display, re-tuck it above the edge unless the pointer is still near.
@@ -162,7 +166,14 @@ final class NotchPanelController {
 
     private func positionWindow() {
         guard let screen = NotchGeometry.activeScreen() else { return }
-        panel.setFrame(NotchGeometry(screen: screen).hostWindowFrame, display: true)
+        let geometry = NotchGeometry(screen: screen)
+        var frame = geometry.hostWindowFrame
+        // When floating (below the menu bar), drop the window by the menu bar / notch height
+        // so the top of the content doesn't sit underneath the menu bar.
+        if panel.level == .floating {
+            frame.origin.y -= geometry.topInset
+        }
+        panel.setFrame(frame, display: true)
         // Publish the resolved screen so the SwiftUI surface sizes its geometry
         // against the *same* display the host window was just placed on. This is
         // the single source of truth for "which screen" — keeping window and
