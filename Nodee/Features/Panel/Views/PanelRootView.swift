@@ -87,18 +87,30 @@ struct PanelRootView: View {
                     radius: 28,
                     y: 0
                 )
-
+            
             // The inner content, revealed only once expanded; masked to the
             // shape so it never spills out during the morph.
-            surface
-                .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.panelSize.height)
-                .scaleEffect(1, anchor: .top)
-                .opacity(contentVisible ? 1 : 0)
-                .mask {
-                    panelShape(metrics)
-                        .frame(width: metrics.width, height: metrics.height)
-                }
-        }
+            VStack {
+                Rectangle()
+                    .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.topInset)
+                    .scaleEffect(1, anchor: .top)
+                    .opacity(contentVisible ? 1 : 0)
+                    .mask {
+                        panelShape(metrics)
+                            .frame(width: metrics.width, height: metrics.height)
+                    }
+                    .foregroundStyle(Color.black)
+                    
+                surface
+                    .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.panelSize.height)
+                    .scaleEffect(1, anchor: .top)
+                    .opacity(contentVisible ? 1 : 0)
+                    .mask {
+                        panelShape(metrics)
+                            .frame(width: metrics.width, height: metrics.height)
+                    }
+            }}
+        
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // The host window's top edge sits on the physical screen top; without
         // this SwiftUI insets the content below the menu bar, dropping the notch

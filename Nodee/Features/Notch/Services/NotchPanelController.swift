@@ -103,14 +103,19 @@ final class NotchPanelController {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(gestureView) // so the finger gestures are heard
         installEscapeMonitor()
-        panel.level = .floating
-        positionWindow()
+        panel.level = NSWindow.Level(rawValue:3)
+//        positionWindow()
 
         withAnimation(Theme.panelOpen) {
             presentation.openProgress = 0
             presentation.isExpanded = true
         }
         appState.isPanelOpen = true
+        print(NSWindow.Level.normal.rawValue)
+        print(NSWindow.Level.floating.rawValue)
+        print(NSWindow.Level.statusBar.rawValue)
+        print(NSWindow.Level.screenSaver.rawValue)
+        print(panel.level.rawValue)
     }
 
     func close() {
@@ -170,9 +175,9 @@ final class NotchPanelController {
         var frame = geometry.hostWindowFrame
         // When floating (below the menu bar), drop the window by the menu bar / notch height
         // so the top of the content doesn't sit underneath the menu bar.
-        if panel.level == .floating {
-            frame.origin.y -= geometry.topInset
-        }
+//        if panel.level == .floating {
+//            frame.origin.y -= geometry.topInset
+//        }
         panel.setFrame(frame, display: true)
         // Publish the resolved screen so the SwiftUI surface sizes its geometry
         // against the *same* display the host window was just placed on. This is
