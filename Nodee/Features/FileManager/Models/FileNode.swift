@@ -15,7 +15,7 @@ nonisolated struct FileNode: Identifiable, Hashable, Sendable {
     let name: String
     let isDirectory: Bool
     let fileExtension: String
-    let kind: FileKind
+    let kind: FileKindEnum
     /// Byte size of the file; nil for directories (and on read error).
     let size: Int?
     /// Last content modification date; nil on read error.
@@ -45,7 +45,7 @@ nonisolated struct FileNode: Identifiable, Hashable, Sendable {
 
         let ext = standardized.pathExtension.lowercased()
         self.fileExtension = ext
-        self.kind = isNavigableDir ? .folder : FileKind.forExtension(ext)
+        self.kind = isNavigableDir ? .folder : FileKindEnum.forExtension(ext)
     }
 
     /// Label shown when the file has no extension (rare) or for the "other" kind.

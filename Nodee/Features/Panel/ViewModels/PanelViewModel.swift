@@ -64,8 +64,8 @@ final class PanelViewModel {
     // MARK: - Home access
 
     @discardableResult
-    func grantHomeAccess() -> Bool {
-        guard appState.grantHomeAccess() != nil else { return false }
+    func grantHomeAccess() async -> Bool {
+        guard await appState.grantHomeAccess() != nil else { return false }
         restoreSession()
         return true
     }

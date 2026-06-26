@@ -85,7 +85,7 @@ final class AppState {
     /// URL on success. The open panel is pre-pointed at the *real* Home, not the
     /// sandbox container, and lifted above the floating Notch panel.
     @discardableResult
-    func grantHomeAccess() -> URL? {
+    func grantHomeAccess() async -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

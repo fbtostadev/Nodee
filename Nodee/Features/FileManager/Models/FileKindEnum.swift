@@ -10,7 +10,7 @@
 import SwiftUI
 
 /// Visual category of a node, derived from its file extension.
-nonisolated enum FileKind: String, Sendable {
+nonisolated enum FileKindEnum: String, Sendable {
     case markdown
     case image
     case pdf
@@ -21,7 +21,7 @@ nonisolated enum FileKind: String, Sendable {
 
     // MARK: - Classification
 
-    static func forExtension(_ ext: String) -> FileKind {
+    static func forExtension(_ ext: String) -> FileKindEnum {
         let e = ext.lowercased()
         if markdownExtensions.contains(e) { return .markdown }
         if imageExtensions.contains(e) { return .image }
