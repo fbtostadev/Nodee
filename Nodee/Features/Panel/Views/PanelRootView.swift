@@ -14,21 +14,23 @@ struct PanelRootView: View {
     @Environment(AppState.self) private var appState
     @Environment(PanelPresentation.self) private var presentation
     @Query(sort: \PinnedProject.sortIndex) private var projects: [PinnedProject]
-
+    
     //FinderViewModel
     //MediaPlayerViewModel
     //TimerViewModel
     //NotesViewModel
+    @State private var featureSelection: Features = .fileManager
     
     @State private var panelVM: PanelViewModel
-    @State private var sidebarVM: SidebarViewModel
+//    @State private var sidebarVM: SidebarViewModel
     /// Independent visibility state for the content and shadow, driven by the
     /// onChange orchestrator below. Keeping them separate from `isExpanded`
     /// gives each layer its own animation timeline so the panel reads as a
     /// single solid block: shape expands first, content and shadow reveal after.
     @State private var contentVisible = false
     @State private var shadowVisible  = false
-
+    let container: ModelContainer
+    
     /// Notch geometry for the screen the controller anchored the panel to. Derived
     /// (not stored) so it always tracks `presentation.activeScreen` — the same
     /// display the host window was placed on — keeping size, scale and the
@@ -36,10 +38,10 @@ struct PanelRootView: View {
     private var geometry: NotchGeometry {
         NotchGeometry(screen: presentation.activeScreen ?? NSScreen.main!)
     }
-
+    
     private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
     private var browser: BrowserViewModel { panelVM.browser }
-
+    
     /// Vertical shift that tucks the compact Notch above the top edge on displays
     /// that conceal it (external monitors / fullscreen), bringing it back down as
     /// the pointer nears the top-centre. Zero while expanded or on the always-on
@@ -49,7 +51,7 @@ struct PanelRootView: View {
         let hiddenDistance = geometry.closedHeight + 10
         return -hiddenDistance * (1 - presentation.notchReveal)
     }
-
+    
     /// How much the whole panel widens to fund a near handle's gutter: the sum of
     /// the active edge reveals × the gutter. The Notch expands horizontally instead
     /// of any pane ceding space, so directory strings never truncate. At most one
@@ -58,7 +60,7 @@ struct PanelRootView: View {
         (presentation.sidebarTrailingReveal
          + presentation.previewLeadingReveal) * Theme.paneHandleGutter
     }
-
+    
     /// Sidebar collapse lives in the shared presentation so the controller's
     /// three-finger swipe can toggle it — same effect as the toolbar toggle.
     private var isSidebarCollapsed: Bool { presentation.isSidebarCollapsed }
@@ -67,16 +69,16 @@ struct PanelRootView: View {
             presentation.isSidebarCollapsed = collapsed
         }
     }
-
+    
     init(container: ModelContainer, appState: AppState) {
+        self.container = container
         let browser = BrowserViewModel(container: container)
         _panelVM = State(initialValue: PanelViewModel(appState: appState, browser: browser))
-        _sidebarVM = State(initialValue: SidebarViewModel(container: container, appState: appState))
     }
-
+    
     var body: some View {
         let metrics = currentMetrics
-
+        
         ZStack(alignment: .top) {
             // The solid shape that mimics the hardware notch / island expanding.
             panelShape(metrics)
@@ -87,17 +89,31 @@ struct PanelRootView: View {
                     radius: 28,
                     y: 0
                 )
-
+            
             // The inner content, revealed only once expanded; masked to the
             // shape so it never spills out during the morph.
-            surface
-                .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.panelSize.height)
-                .scaleEffect(1, anchor: .top)
-                .opacity(contentVisible ? 1 : 0)
-                .mask {
-                    panelShape(metrics)
-                        .frame(width: metrics.width, height: metrics.height)
+            VStack {
+                ToolbarView(selection: $featureSelection)
+                surface
+                Spacer()
+            }
+            
+            //Grabber
+            .overlay(alignment: .bottom) {
+                if presentation.isExpanded {
+                    GrabberHandle()
+                        .transition(.opacity)
                 }
+            }
+            .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.panelSize.height)
+            .scaleEffect(1, anchor: .top)
+            .background(.black)
+            .opacity(contentVisible ? 1 : 0)
+            .mask {
+                panelShape(metrics)
+                    .frame(width: metrics.width, height: metrics.height)
+            }
+            
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // The host window's top edge sits on the physical screen top; without
@@ -135,9 +151,9 @@ struct PanelRootView: View {
             }
         }
     }
-
+    
     // MARK: - Shape morphing
-
+    
     /// Resolved size + corner radii for the current state. Condensed, the notch
     /// grows slightly on hover and peeks down under an in-flight open gesture
     /// (the minimal "stretch"); expanded, it becomes the full panel.
@@ -147,7 +163,7 @@ struct PanelRootView: View {
         var topCorner: CGFloat
         var bottomCorner: CGFloat
     }
-
+    
     private var currentMetrics: ShapeMetrics {
         if presentation.isExpanded {
             let corner = Theme.panelCornerRadius * geometry.panelScale
@@ -158,7 +174,7 @@ struct PanelRootView: View {
                 bottomCorner: corner
             )
         }
-
+        
         let hoverGrowth = presentation.isHoveringNotch ? Theme.notchHoverGrowth : 0
         let peekGrowth = presentation.openProgress * Theme.notchPeekGrowth
         let width = geometry.closedWidth + presentation.openProgress * 8
@@ -174,7 +190,7 @@ struct PanelRootView: View {
             bottomCorner: notchShaped ? min(14, height / 2) : height / 2
         )
     }
-
+    
     /// Whether the panel draws as a notch (independent top/bottom corners) rather
     /// than a fully-rounded pill: physical notch screens always, plus concealed
     /// displays (so the compact peek stays flush to the edge). Kept true through
@@ -183,7 +199,7 @@ struct PanelRootView: View {
     private var usesNotchShape: Bool {
         geometry.hasNotch || presentation.concealsNotch
     }
-
+    
     private func panelShape(_ metrics: ShapeMetrics) -> AnyShape {
         if usesNotchShape {
             AnyShape(NotchShape(topCornerRadius: metrics.topCorner, bottomCornerRadius: metrics.bottomCorner))
@@ -191,104 +207,22 @@ struct PanelRootView: View {
             AnyShape(DynamicIslandPillShape(cornerRadius: metrics.bottomCorner))
         }
     }
-
+    @ViewBuilder
     private var surface: some View {
         let panelWidth = geometry.panelSize.width
-        return FinderView(panelVM: panelVM, sidebarVM: sidebarVM, panelWidth: panelWidth, geometry: geometry)
-//        return HStack(spacing: 0) {
-//            if !isSidebarCollapsed {
-//                SidebarView(
-//                    vm: sidebarVM,
-//                    locations: locations,
-//                    projects: projects,
-//                    currentDirectory: browser.currentDirectory,
-//                    selectedFavoriteID: panelVM.selectedFavoriteID,
-//                    width: Theme.sidebarWidth(panelWidth: panelWidth),
-//                    onSelectLocation: { panelVM.openLocation($0) },
-//                    onSelectFavorite: { panelVM.openFavorite($0) },
-//                    onCollapse: { setSidebarCollapsed(true) },
-//                    onDropFiles: { panelVM.dropFiles($0, into: $1, copy: $2) },
-//                    onDropIntoLocation: { panelVM.dropFilesIntoLocation($0, into: $1, copy: $2) }
-//                )
-//                .transition(.move(edge: .leading).combined(with: .opacity))
-//
-//                PaneDivider(paneSide: .leading, gutter: .sidebarTrailing, action: { setSidebarCollapsed(true) })
-//                    .zIndex(1) // keep the handle aura above the browser pane
-//                    .transition(.opacity)
-//            }
-//
-//            BrowserRootView(vm: browser, panelWidth: panelWidth, notchInset: geometry.topInset)
-//                .frame(maxWidth: .infinity, maxHeight: .infinity)
-//                .overlay {
-//                    if !appState.hasHomeAccess {
-//                        homeAccessCTA
-//                    }
-//                }
-//                .overlay(alignment: .topLeading) {
-//                    if isSidebarCollapsed {
-//                        Button {
-//                            setSidebarCollapsed(false)
-//                        } label: {
-//                            Image(systemName: "square.lefthalf.filled")
-//                                .font(.system(size: 13))
-//                                .foregroundStyle(.white.opacity(0.55))
-//                                .frame(width: 24, height: 32)
-//                                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
-//                        }
-//                        .buttonStyle(.plain)
-//                        .padding(.leading, 8)
-//                        .padding(.top, 6)
-//                        .help("Expandir sidebar")
-//                        .transition(.opacity)
-//                    }
-//                }
-//                // Left invitation strip — visible when the sidebar is collapsed,
-//                // signals that a rightward swipe reveals it.
-//                .overlay(alignment: .leading) {
-//                    if isSidebarCollapsed {
-//                        LinearGradient(
-//                            stops: [
-//                                .init(color: .white.opacity(0.10), location: 0),
-//                                .init(color: .clear, location: 1)
-//                            ],
-//                            startPoint: .leading,
-//                            endPoint: .trailing
-//                        )
-//                        .frame(width: 12)
-//                        .allowsHitTesting(false)
-//                        .transition(.opacity)
-//                    }
-//                }
-//                // Edge handle to reveal the sidebar — chevron CTA on the left margin.
-//                .overlay(alignment: .leading) {
-//                    if isSidebarCollapsed {
-//                        PaneDivider(paneSide: .leading, mode: .expand, action: { setSidebarCollapsed(false) })
-//                            .transition(.opacity)
-//                    }
-//                }
-//        }
-//        .overlay {
-//            RoundedRectangle(cornerRadius: Theme.panelCornerRadius * geometry.panelScale)
-//                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-//        }
-//        .overlay(alignment: .bottom) {
-//            // The handle that condenses the panel — only while expanded.
-//            if presentation.isExpanded {
-//                GrabberHandle()
-//                    .transition(.opacity)
-//            }
-//        }
-//        .overlay(alignment: .bottom) {
-//            // Transient confirmation / Undo, floated just above the grabber.
-//            if let current = panelVM.toast.current {
-//                ToastView(toast: current, center: panelVM.toast)
-//                    .padding(.bottom, Theme.grabberHitHeight + 10)
-//                    .transition(.move(edge: .bottom).combined(with: .opacity))
-//            }
-//        }
-//        .animation(.spring(response: 0.28, dampingFraction: 0.85), value: panelVM.toast.current?.id)
+        
+        switch featureSelection {
+        case .fileManager:
+            FinderView(panelVM: panelVM, sidebarVM: SidebarViewModel(container: container, appState: appState), panelWidth: panelWidth, geometry: geometry)
+        case .timer:
+            EmptyView()
+        case .notes:
+            EmptyView()
+        case .mediaPlayer:
+            EmptyView()
+        }
     }
-
+    
     /// First-run gate: with no Home grant the browser has nothing to show, so we
     /// invite the user to concede access. Granting lands them in their Home.
     var homeAccessCTA: some View {
@@ -305,18 +239,18 @@ struct PanelRootView: View {
                 .multilineTextAlignment(.center)
             Button {
                 Task { await panelVM.grantHomeAccess() }} label: {
-                Text("Conceder acesso à pasta pessoal")
-                    .font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(.white)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
+                    Text("Conceder acesso à pasta pessoal")
+                        .font(.system(size: 12, weight: .semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.panelBackground)
     }
-
+    
 }

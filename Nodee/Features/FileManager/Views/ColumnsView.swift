@@ -72,7 +72,7 @@ struct ColumnsView: View {
                         ) { click in
                             if click.count >= 2 {
                                 if file.isDirectory { vm.selectInColumn(file.url, column: index) }
-                                else { vm.open(file) }
+                                else { Task.detached{ await vm.open(file) } }
                             } else if click.shift { vm.selectRange(to: file.url) }
                             else if click.command { vm.select(file.url, extending: true) }
                             else { vm.selectInColumn(file.url, column: index) }

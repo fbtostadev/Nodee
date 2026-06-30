@@ -103,7 +103,7 @@ final class NotchPanelController {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(gestureView) // so the finger gestures are heard
         installEscapeMonitor()
-        panel.level = .floating
+        panel.level = .statusBar
         positionWindow()
 
         withAnimation(Theme.panelOpen) {
