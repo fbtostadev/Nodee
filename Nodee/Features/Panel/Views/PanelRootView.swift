@@ -90,10 +90,9 @@ struct PanelRootView: View {
                     y: 0
                 )
             
-            // The inner content, revealed only once expanded; masked to the
-            // shape so it never spills out during the morph.
+            //Contents of the open notch
             VStack {
-                ToolbarView(selection: $featureSelection)
+//                ToolbarView(selection: $featureSelection)
                 surface
                 Spacer()
             }
@@ -105,6 +104,7 @@ struct PanelRootView: View {
                         .transition(.opacity)
                 }
             }
+            //Makes so that the content, doesn't spill over.
             .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.panelSize.height)
             .scaleEffect(1, anchor: .top)
             .background(.black)
