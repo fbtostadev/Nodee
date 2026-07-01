@@ -88,7 +88,7 @@ struct FileListView: View {
                                 return [row.file.url]
                             }
                         ) { click in
-                            if click.count >= 2 { vm.open(row.file) }
+                            if click.count >= 2 { Task.detached{ await vm.open(row.file) }}
                             else if click.shift { vm.selectRange(to: row.file.url) }
                             else if click.command { vm.select(row.file.url, extending: true) }
                             else { vm.select(row.file.url) }

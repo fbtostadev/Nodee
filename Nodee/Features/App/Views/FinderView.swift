@@ -13,7 +13,9 @@ import SwiftData
 struct FinderView: View {
     @Environment(AppState.self) private var appState
     @Environment(PanelPresentation.self) private var presentation
+    
     @Query(sort: \PinnedProject.sortIndex) private var projects: [PinnedProject]
+
 
     let panelVM: PanelViewModel
     let sidebarVM: SidebarViewModel
@@ -66,13 +68,13 @@ struct FinderView: View {
                     onDropIntoLocation: { panelVM.dropFilesIntoLocation($0, into: $1, copy: $2) }
                 )
                 .transition(.move(edge: .leading).combined(with: .opacity))
-                
+
                 PaneDivider(paneSide: .leading, gutter: .sidebarTrailing, action: { setSidebarCollapsed(true) })
                     .zIndex(1) // keep the handle aura above the browser pane
                     .transition(.opacity)
             }
             
-            BrowserRootView(vm: browser, panelWidth: panelWidth, notchInset: geometry.topInset)
+            BrowserRootView(vm: browser, panelWidth: panelWidth, notchInset: 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay {
                     if !appState.hasHomeAccess {
@@ -122,17 +124,6 @@ struct FinderView: View {
                     }
                 }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.panelCornerRadius * geometry.panelScale)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-        }
-        .overlay(alignment: .bottom) {
-            // The handle that condenses the panel — only while expanded.
-            if presentation.isExpanded {
-                GrabberHandle()
-                    .transition(.opacity)
-            }
-        }
         .overlay(alignment: .bottom) {
             // Transient confirmation / Undo, floated just above the grabber.
             if let current = panelVM.toast.current {
@@ -142,5 +133,61 @@ struct FinderView: View {
             }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.85), value: panelVM.toast.current?.id)
+    }
+}
+
+
+// MARK: - Preview
+
+#Preview("FinderView") {
+    @Previewable @State var selection: Features = .fileManager
+    struct PreviewContainer: View {
+        // Build an in-memory SwiftData container for previews
+        private static var previewContainer: ModelContainer = {
+            let schema = Schema([PinnedProject.self, BrowserState.self])
+            let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            return try! ModelContainer(for: schema, configurations: [config])
+        }()
+        
+        
+        // Hold environment observables
+        @State private var appState: AppState = AppState(container: previewContainer)
+        @State private var presentation: PanelPresentation = PanelPresentation()
+        @Binding var selection: Features
+        
+        var body: some View {
+            // View models wired with real init signatures
+            let browser = BrowserViewModel(container: Self.previewContainer)
+            let panelVM = PanelViewModel(appState: appState, browser: browser)
+            let sidebarVM = SidebarViewModel(container: Self.previewContainer, appState: appState)
+            let geometry = NotchGeometry.preview
+            let width: CGFloat = 900
+
+                ToolbarView(selection: $selection)
+                FinderView(
+                    panelVM: panelVM,
+                    sidebarVM: sidebarVM,
+                    panelWidth: width,
+                    geometry: geometry
+                )
+                .environment(appState)
+                .environment(presentation)
+                .modelContainer(Self.previewContainer)
+                .frame(width: width, height: 900)
+                .background(Theme.panelBackground)
+            }
+        
+    }
+
+    return PreviewContainer(selection: $selection)
+}
+
+// MARK: - Preview helpers
+
+private extension NotchGeometry {
+    static var preview: NotchGeometry {
+        // Use the active screen if available; fall back to NSScreen.main
+        let screen = NotchGeometry.activeScreen() ?? NSScreen.main!
+        return NotchGeometry(screen: screen)
     }
 }
