@@ -48,8 +48,17 @@ final class SidebarViewModel {
         panel.prompt = "Adicionar"
         panel.message = "Escolha uma ou mais pastas para adicionar aos favoritos"
         NSApp.activate()
-        let response = appState.runWithPanelLowered { panel.runModal() }
-        if response == .OK { pin(panel.urls, existingProjects: existingProjects) }
+        // Use the async, non-modal `begin` instead of `runModal()`: a nested AppKit
+        // modal run loop on the MainActor (shared with our SwiftUI surface) is a
+        // known crash vector — it blocks while the out-of-process Powerbox picker
+        // grants folder access. Lower the Notch so the picker isn't hidden behind
+        // it, and restore the level once the picker dismisses.
+        appState.lowerPanelLevel()
+        panel.begin { [weak self] response in
+            self?.appState.restorePanelLevel()
+            guard response == .OK else { return }
+            self?.pin(panel.urls, existingProjects: existingProjects)
+        }
     }
 
     func remove(_ project: PinnedProject) {

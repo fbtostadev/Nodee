@@ -47,12 +47,18 @@ final class AppState {
     func openPanel() { controller?.open() }
     func closePanel() { controller?.close() }
 
-    /// Run `work` (a sandbox open/save panel `runModal`) with the always-on-top
-    /// Notch panel lowered, so the system picker isn't hidden behind it. Powerbox
-    /// renders the picker out-of-process and ignores the level set on it locally.
+    /// Run `work` (a synchronous sandbox open/save panel `runModal`) with the
+    /// floating Notch panel lowered, so the system picker isn't hidden behind it.
+    /// Powerbox renders the picker out-of-process and ignores the level set on it
+    /// locally.
     func runWithPanelLowered<T>(_ work: () -> T) -> T {
         controller?.runWithPanelLowered(work) ?? work()
     }
+
+    /// Lower / restore the Notch panel level around an *async* picker (which uses
+    /// `NSOpenPanel.begin` instead of a nested modal run loop).
+    func lowerPanelLevel() { controller?.lowerPanelLevel() }
+    func restorePanelLevel() { controller?.restorePanelLevel() }
 
     private func registerDefaultHotKey() {
         hotKey = GlobalHotKey(
@@ -94,7 +100,15 @@ final class AppState {
         panel.prompt = "Conceder"
         panel.message = "Conceda acesso à sua pasta pessoal para o Nodee navegar seus arquivos"
         NSApp.activate()
-        let response = runWithPanelLowered { panel.runModal() }
+        // Use the async, non-modal `begin` instead of `runModal()`: running a
+        // nested AppKit modal run loop inside a Swift-concurrency `Task` on the
+        // MainActor is a known crash vector. Lower the panel before showing the
+        // picker and restore it once it dismisses.
+        lowerPanelLevel()
+        let response = await withCheckedContinuation { continuation in
+            panel.begin { continuation.resume(returning: $0) }
+        }
+        restorePanelLevel()
         guard response == .OK, let url = panel.url,
               let bookmark = SecurityScopedBookmark.make(for: url) else { return nil }
 
