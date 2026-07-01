@@ -14,9 +14,10 @@ import SwiftData
 @Observable
 final class SidebarViewModel {
     private let container: ModelContainer
-    private let appState: AppState
+//    private let appState: AppState
+    private let appState: FinderState
 
-    init(container: ModelContainer, appState: AppState) {
+    init(container: ModelContainer, appState: FinderState) {
         self.container = container
         self.appState = appState
     }

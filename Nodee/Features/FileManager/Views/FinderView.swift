@@ -11,13 +11,15 @@ import SwiftData
 
 
 struct FinderView: View {
-    @Environment(AppState.self) private var appState
+    @Environment(FinderState.self) private var finderState
     @Environment(PanelPresentation.self) private var presentation
     
     @Query(sort: \PinnedProject.sortIndex) private var projects: [PinnedProject]
 
 
-    let panelVM: PanelViewModel
+//    let panelVM: PanelViewModel
+    let panelVM: FinderViewModel
+  
     let sidebarVM: SidebarViewModel
     /// Independent visibility state for the content and shadow, driven by the
     /// onChange orchestrator below. Keeping them separate from `isExpanded`
@@ -29,7 +31,7 @@ struct FinderView: View {
     let panelWidth: CGFloat
     let geometry: NotchGeometry
 
-    private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
+    private var locations: [SidebarLocation] { SidebarLocation.defaults(home: finderState.homeURL) }
     private var browser: BrowserViewModel { panelVM.browser }
 
     /// How much the whole panel widens to fund a near handle's gutter: the sum of
@@ -77,8 +79,8 @@ struct FinderView: View {
             BrowserRootView(vm: browser, panelWidth: panelWidth, notchInset: 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay {
-                    if !appState.hasHomeAccess {
-                        homeAccessCTA(panelVM: panelVM)
+                    if !finderState.hasHomeAccess {
+                        homeAccessCTA(finderVm: panelVM)
                     }
                 }
                 .overlay(alignment: .topLeading) {
@@ -151,26 +153,29 @@ struct FinderView: View {
         
         
         // Hold environment observables
-        @State private var appState: AppState = AppState(container: previewContainer)
+//        @State private var appState: AppState = AppState(container: previewContainer)
+        @State private var finderState: FinderState = FinderState(container: previewContainer)
+        
         @State private var presentation: PanelPresentation = PanelPresentation()
         @Binding var selection: Features
         
         var body: some View {
             // View models wired with real init signatures
             let browser = BrowserViewModel(container: Self.previewContainer)
-            let panelVM = PanelViewModel(appState: appState, browser: browser)
-            let sidebarVM = SidebarViewModel(container: Self.previewContainer, appState: appState)
+//            let panelVM = PanelViewModel(appState: appState, browser: browser)
+            let finderVM = FinderViewModel(appState: finderState, browser: browser)
+            let sidebarVM = SidebarViewModel(container: Self.previewContainer, appState: finderState)
             let geometry = NotchGeometry.preview
             let width: CGFloat = 900
 
                 ToolbarView(selection: $selection)
                 FinderView(
-                    panelVM: panelVM,
+                    panelVM: finderVM,
                     sidebarVM: sidebarVM,
                     panelWidth: width,
                     geometry: geometry
                 )
-                .environment(appState)
+                .environment(finderState)
                 .environment(presentation)
                 .modelContainer(Self.previewContainer)
                 .frame(width: width, height: 900)

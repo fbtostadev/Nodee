@@ -11,7 +11,8 @@ import Foundation
 
  struct homeAccessCTA: View {
      
-     let panelVM: PanelViewModel
+//     let panelVM: PanelViewModel
+     let finderVm: FinderViewModel
     
      var body: some View {
          VStack(spacing: 12) {
@@ -25,7 +26,7 @@ import Foundation
                  .font(.system(size: 12))
                  .foregroundStyle(.white.opacity(0.55))
                  .multilineTextAlignment(.center)
-             Button { Task { await panelVM.grantHomeAccess() } } label: {
+             Button { Task { await finderVm.grantHomeAccess() } } label: {
                  Text("Conceder acesso à pasta pessoal")
                      .font(.system(size: 12, weight: .semibold))
                      .padding(.horizontal, 14)

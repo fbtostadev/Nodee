@@ -20,6 +20,7 @@ final class NotchPanelController {
     private let openMonitor = NotchOpenGestureMonitor()
     private let dragRevealMonitor = DragRevealMonitor()
     private let appState: AppState
+    private let finderState: FinderState
 
     private var escMonitor: Any?
 
@@ -31,10 +32,12 @@ final class NotchPanelController {
 
     init(appState: AppState, container: ModelContainer) {
         self.appState = appState
+        self.finderState = FinderState(container: container)
 
-        let root = PanelRootView(container: container, appState: appState)
+        let root = PanelRootView(container: container, appState: appState, finderState: finderState)
             .environment(appState)
             .environment(presentation)
+            .environment(finderState)
             .modelContainer(container)
 
         let hosting = NSHostingView(rootView: root)

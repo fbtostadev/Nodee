@@ -189,6 +189,11 @@ struct SidebarView: View {
         let isSelected = project.id == selectedFavoriteID
         let isDropTarget = project.id == dropTargetID
         let isHovered = project.id == hoveredFavID
+        
+        print("selected:", selectedFavoriteID)
+        print("project:", project.name, project.id)
+
+        
         return rowLabel(systemImage: "folder.fill", name: project.name,
                         isSelected: isSelected, isDropTarget: isDropTarget, isHovered: isHovered)
             .contentShape(Rectangle())
@@ -207,7 +212,7 @@ struct SidebarView: View {
             .contextMenu {
                 Button("Remover dos favoritos", role: .destructive) { vm.remove(project) }
             }
-    }
+        }
 
     private func rowLabel(systemImage: String, name: String,
                           isSelected: Bool, isDropTarget: Bool, isHovered: Bool = false) -> some View {

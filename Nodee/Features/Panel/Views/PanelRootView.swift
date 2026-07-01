@@ -12,6 +12,7 @@ import SwiftData
 
 struct PanelRootView: View {
     @Environment(AppState.self) private var appState
+    @Environment(FinderState.self) private var finderState
     @Environment(PanelPresentation.self) private var presentation
     @Query(sort: \PinnedProject.sortIndex) private var projects: [PinnedProject]
     
@@ -22,7 +23,10 @@ struct PanelRootView: View {
     @State private var featureSelection: Features = .fileManager
     
     @State private var panelVM: PanelViewModel
-//    @State private var sidebarVM: SidebarViewModel
+    
+    @State private var finderVM: FinderViewModel
+    @State private var sidebarVM: SidebarViewModel
+    //    @State private var sidebarVM: SidebarViewModel
     /// Independent visibility state for the content and shadow, driven by the
     /// onChange orchestrator below. Keeping them separate from `isExpanded`
     /// gives each layer its own animation timeline so the panel reads as a
@@ -40,7 +44,7 @@ struct PanelRootView: View {
     }
     
     private var locations: [SidebarLocation] { SidebarLocation.defaults(home: appState.homeURL) }
-    private var browser: BrowserViewModel { panelVM.browser }
+    private var browser: BrowserViewModel { finderVM.browser }
     
     /// Vertical shift that tucks the compact Notch above the top edge on displays
     /// that conceal it (external monitors / fullscreen), bringing it back down as
@@ -70,10 +74,32 @@ struct PanelRootView: View {
         }
     }
     
-    init(container: ModelContainer, appState: AppState) {
+    init(container: ModelContainer, appState: AppState, finderState: FinderState) {
         self.container = container
+        
         let browser = BrowserViewModel(container: container)
-        _panelVM = State(initialValue: PanelViewModel(appState: appState, browser: browser))
+        
+        _panelVM = State(
+            initialValue: PanelViewModel(
+            appState: appState,
+            browser: browser
+            )
+        )
+        
+        _finderVM = State(
+            initialValue: FinderViewModel(
+            appState: finderState,
+            browser: browser
+            )
+        )
+        
+        _sidebarVM = State(
+            initialValue: SidebarViewModel(
+                container: container,
+                appState: finderState
+            )
+        )
+        
     }
     
     var body: some View {
@@ -92,7 +118,7 @@ struct PanelRootView: View {
             
             //Contents of the open notch
             VStack {
-//                ToolbarView(selection: $featureSelection)
+                //                ToolbarView(selection: $featureSelection)
                 surface
                 Spacer()
             }
@@ -123,7 +149,7 @@ struct PanelRootView: View {
         .ignoresSafeArea()
         .offset(y: -6 + concealOffset)
         .onAppear {
-            panelVM.onAppear()
+            finderVM.onAppear()
         }
         .animation(presentation.isExpanded ? Theme.panelOpen : Theme.panelClose, value: presentation.isExpanded)
         .animation(Theme.notchStretch, value: presentation.isHoveringNotch)
@@ -213,7 +239,7 @@ struct PanelRootView: View {
         
         switch featureSelection {
         case .fileManager:
-            FinderView(panelVM: panelVM, sidebarVM: SidebarViewModel(container: container, appState: appState), panelWidth: panelWidth, geometry: geometry)
+            FinderView(panelVM: finderVM, sidebarVM: sidebarVM, panelWidth: panelWidth, geometry: geometry)
         case .timer:
             EmptyView()
         case .notes:
@@ -238,7 +264,7 @@ struct PanelRootView: View {
                 .foregroundStyle(.white.opacity(0.55))
                 .multilineTextAlignment(.center)
             Button {
-                Task { await panelVM.grantHomeAccess() }} label: {
+                Task { await finderVM.grantHomeAccess() }} label: {
                     Text("Conceder acesso à pasta pessoal")
                         .font(.system(size: 12, weight: .semibold))
                         .padding(.horizontal, 14)
