@@ -42,7 +42,12 @@ final class NotchPanelController {
             .environment(presentation)
             .modelContainer(container)
 
-        let hosting = NSHostingView(rootView: root)
+        // FirstMouse hosting so SwiftUI controls (sidebar Favoritos/Locais taps,
+        // toolbar buttons) act on the very first click even though the Notch floats
+        // above other apps without activating Nodee. Over a windowed app that app
+        // stays active, so without this the first click would be eaten as a mere
+        // window-activation click and the tap would be lost — the "freeze".
+        let hosting = FirstMouseHostingView(rootView: root)
         hosting.autoresizingMask = [.width, .height]
         // Don't reserve the menu-bar safe area — the surface must reach the very
         // top so the notch shape aligns with the hardware notch / screen edge.
@@ -197,10 +202,16 @@ final class NotchPanelController {
         // latter flips to false the instant the menu bar auto-reveals (cursor at
         // the top to open the Notch), which made the drop never apply.
         let fullscreen = geometry.hasFullscreenWindow
-        // Over the menu bar (reaching the hardware notch) when no app is fullscreen;
-        // `.floating` on a fullscreen display so the system menu bar renders *above*
-        // us and stays fully clickable. Don't clobber a temporarily lowered level
-        // (file picker).
+        // Over the menu bar (reaching the hardware notch) when no app is fullscreen —
+        // both closed and expanded — so the canvas grows seamlessly out of the
+        // physical notch. `.floating` on a fullscreen display so the system menu bar
+        // renders above us and stays clickable. Don't clobber a temporarily lowered
+        // level (file picker).
+        //
+        // The one thing that must never happen at `.statusBar` is presenting a system
+        // open/save picker (Powerbox) behind us — that wedged the app. Folder access
+        // is therefore granted up front in the dedicated onboarding window (a normal
+        // window, not this panel), so no picker is ever shown over the Notch.
         let level: NSWindow.Level = fullscreen ? .floating : .statusBar
         if savedPanelLevel == nil {
             panel.level = level
@@ -213,15 +224,19 @@ final class NotchPanelController {
         // height so the *expanded* Notch starts below the menu bar — leaving the
         // black menu-bar strip uncovered and every menu reachable. Only while
         // expanded: closed, the window stays pinned to the top so the concealed
-        // compact Notch tucks into the hardware island and peeks from there,
-        // exactly like a non-fullscreen notch. `topInset` is 0 in fullscreen, so
-        // prefer the last inset measured while windowed and fall back to a robust
-        // height that survives the menu bar collapsing.
-        if fullscreen, willExpand {
-            // The menu bar usually stays reserved in fullscreen here (the user
-            // keeps it shown), so the reserved strip is the exact height to clear.
-            // If a config does hide it (reserved == 0), fall back to a measured /
-            // robust menu-bar height so the drop is never 0.
+        // compact Notch tucks into the hardware island and peeks from there. On a
+        // normal (non-fullscreen) display we do NOT drop: the `.floating` canvas
+        // reaches the very top and grows seamlessly out of the hardware notch, with
+        // the menu bar (above us in z-order) resting over its top strip. `topInset`
+        // is 0 in fullscreen, so prefer the last inset measured while windowed and
+        // fall back to a robust height that survives the menu bar collapsing.
+        //
+        // Only on a display with a *hardware* notch: there the drop keeps the menu
+        // bar reachable beside the island. On a notch-less external display there's
+        // no island to tuck under, so dropping just leaves the expanded canvas
+        // floating below the top edge (a visible gap over a fullscreen app). Keep it
+        // pinned to the top instead, so it reads as anchored to the top edge.
+        if fullscreen, willExpand, geometry.hasNotch {
             let reserved = screen.frame.maxY - screen.visibleFrame.maxY
             let drop = reserved > 1 ? reserved : (lastTopInset > 0 ? lastTopInset : geometry.menuBarHeight)
             frame.origin.y -= drop
@@ -357,4 +372,14 @@ final class NotchPanelController {
         }
     }
 
+}
+
+/// Hosts the SwiftUI surface and lets its controls act on the first click even
+/// while Nodee isn't the active app (the Notch floats over other apps without
+/// activating). Returning `true` here routes that first click straight to the
+/// SwiftUI hit target instead of consuming it as a window-activation click.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    required init(rootView: Content) { super.init(rootView: rootView) }
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }

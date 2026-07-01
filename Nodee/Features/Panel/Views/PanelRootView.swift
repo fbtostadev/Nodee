@@ -170,7 +170,11 @@ struct PanelRootView: View {
             return ShapeMetrics(
                 width: geometry.panelSize.width + gutterWidthBoost,
                 height: geometry.panelSize.height,
-                topCorner: geometry.hasNotch ? 12 : corner,
+                // Flat-ish top when anchored to the top edge — a hardware notch, or
+                // a concealed/external display where the canvas is pinned to the top
+                // (so it reads as a rectangle emerging from the top edge instead of a
+                // rounded panel floating below it over a fullscreen app).
+                topCorner: (geometry.hasNotch || presentation.concealsNotch) ? 12 : corner,
                 bottomCorner: corner
             )
         }

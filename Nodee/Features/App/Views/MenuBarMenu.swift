@@ -16,6 +16,15 @@ struct MenuBarMenu: View {
 
         Divider()
 
+        // Testing / reset: drop the saved grant and reopen the Notch, which then
+        // shows its first-run access request again.
+        Button("Revogar acesso às pastas") {
+            appState.revokeHomeAccess()
+            appState.openPanel()
+        }
+
+        Divider()
+
         SettingsLink {
             Text("Preferências…")
         }

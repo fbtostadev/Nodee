@@ -100,10 +100,12 @@ final class AppState {
         panel.prompt = "Conceder"
         panel.message = "Conceda acesso à sua pasta pessoal para o Nodee navegar seus arquivos"
         NSApp.activate()
-        // Use the async, non-modal `begin` instead of `runModal()`: running a
-        // nested AppKit modal run loop inside a Swift-concurrency `Task` on the
-        // MainActor is a known crash vector. Lower the panel before showing the
-        // picker and restore it once it dismisses.
+        // Use the async, non-modal `begin` (never `runModal()`: a nested AppKit modal
+        // run loop inside a Swift-concurrency `Task` on the MainActor is a known
+        // crash vector). `begin` presents the picker as its own free-floating window
+        // — no parent, so no sheet backdrop dimming the transparent Notch window (the
+        // gray rectangle). Lower the Notch to `.normal` first so the picker isn't
+        // hidden behind the always-on-top panel, and restore the level afterwards.
         lowerPanelLevel()
         let response = await withCheckedContinuation { continuation in
             panel.begin { continuation.resume(returning: $0) }
@@ -118,6 +120,16 @@ final class AppState {
         }
         homeURL = url
         return url
+    }
+
+    /// Drop the persisted Home grant and stop accessing every scoped root, so the
+    /// first-run onboarding can be tested again from scratch. The browser falls
+    /// back to its access CTA until a new grant lands.
+    func revokeHomeAccess() {
+        UserDefaults.standard.removeObject(forKey: Self.homeBookmarkKey)
+        for url in accessedRoots { url.stopAccessingSecurityScopedResource() }
+        accessedRoots.removeAll()
+        homeURL = nil
     }
 
     /// The user's real Home directory. Inside the sandbox
