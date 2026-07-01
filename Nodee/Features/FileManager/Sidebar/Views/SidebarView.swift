@@ -67,7 +67,6 @@ struct SidebarView: View {
         }
         .frame(width: totalWidth, alignment: .leading)
         .animation(.smooth(duration: 0.35), value: presentation.sidebarTrailingReveal)
-        .background(.black.opacity(0.18))
         .overlay {
             // The whole-sidebar "favorite here" border — suppressed while a
             // specific favorite or location row is the drop target (it shows its own).

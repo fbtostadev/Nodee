@@ -389,7 +389,7 @@ final class BrowserViewModel {
 
     // MARK: - File operations
 
-    func open(_ file: FileNode) {
+    func open(_ file: FileNode) async {
         if file.isDirectory {
             displayMode == .columns ? selectInColumn(file.url, column: columnDepth(of: file.url)) : enter(file)
         } else {

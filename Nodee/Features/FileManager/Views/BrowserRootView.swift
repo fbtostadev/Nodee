@@ -86,7 +86,6 @@ struct BrowserRootView: View {
                 .transition(.opacity)
             }
         }
-        .background(Theme.panelBackground)
         .onAppear {
             installKeyMonitor()
 
@@ -184,7 +183,6 @@ struct BrowserRootView: View {
                     Divider().overlay(Color.white.opacity(0.08))
                 }
             }
-            .background(Theme.panelBackground)
 
             // Footer overlay: blurs the rows behind it and dissolves them into black
             // above the grabber (the grabber is drawn on top, by PanelRootView).
@@ -235,7 +233,7 @@ struct BrowserRootView: View {
             case 124: vm.drillSelection();      return true  // right
             case 123: vm.undrillSelection();    return true  // left
             case 49:  QuickLookCoordinator.shared.toggle(Array(vm.selection)); return true // space
-            case 36, 76: if let file = vm.selectedFile { vm.open(file) }; return true       // return / enter
+            case 36, 76: if let file = vm.selectedFile { Task.detached{ await vm.open(file) } }; return true       // return / enter
             default: return false
             }
         }

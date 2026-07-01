@@ -17,7 +17,7 @@ func fileContextMenu(vm: BrowserViewModel, file: FileNode) -> some View {
     }
 
     Button(file.isDirectory ? "Abrir" : "Abrir no app padrão") {
-        target(); vm.open(file)
+        target(); Task.detached{ await vm.open(file) }
     }
     Button("Renomear") {
         target(); vm.beginRename(file.url)
