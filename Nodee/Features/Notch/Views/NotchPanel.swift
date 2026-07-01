@@ -19,11 +19,12 @@ final class NotchPanel: NSPanel {
         )
 
         isFloatingPanel = true
-        // Above the menu bar so the panel reaches the very top of the screen and
-        // sits over / inside the hardware notch. `.floating` renders *below* the
-        // menu bar, which pushed the notch shape a menu-bar height too low. The
-        // content view's hit-test lets clicks fall through transparent areas, so
-        // the menu bar stays interactive on either side of the notch.
+        // Starting level only — `NotchPanelController.positionWindow()` sets the
+        // real level per context: `.statusBar` (over the menu bar, reaching the
+        // hardware notch) when no app is fullscreen, and `.floating` (out of the
+        // way, concealed) on the display of a fullscreen app. The content view's
+        // hit-test lets clicks fall through transparent areas, so the menu bar
+        // stays interactive on either side of the notch.
         level = .statusBar
         backgroundColor = .clear
         isOpaque = false

@@ -28,6 +28,24 @@ struct NotchGeometry {
 
     var hasNotch: Bool { notchWidth > 0 && topInset > 0 }
 
+    /// Reliable menu-bar / notch height for this screen, usable even while a
+    /// fullscreen app has collapsed the menu bar (where `safeAreaInsets` — and
+    /// thus `topInset` — read 0). Falls back to the physical notch strip height,
+    /// then the tallest top inset across all screens, then the standard status-bar
+    /// thickness — so the open panel can always drop below the menu bar instead of
+    /// sitting flush with the top edge.
+    var menuBarHeight: CGFloat {
+        if topInset > 0 { return topInset }
+        // The hardware notch's aux areas describe a physical layout, so their
+        // height survives fullscreen even when the safe-area inset collapses.
+        if let left = screen.auxiliaryTopLeftArea, left.height > 0 { return left.height }
+        let acrossScreens = NSScreen.screens
+            .map { $0.frame.maxY - $0.visibleFrame.maxY }
+            .max() ?? 0
+        if acrossScreens > 0 { return acrossScreens }
+        return NSStatusBar.system.thickness
+    }
+
     /// Expanded panel size for this screen. Sized so its area is a fixed slice of
     /// the display (`Theme.panelScreenAreaFraction`) while keeping the canonical
     /// aspect ratio. Bigger displays get a proportionally bigger panel, but it
@@ -100,11 +118,11 @@ struct NotchGeometry {
     }
 
     /// Frame for the large transparent host window. The window is pinned to the
-    /// very top of the screen (its top edge sits on `screen.frame.maxY`) and
-    /// spans the full screen width, so the SwiftUI content — anchored top-center
-    /// — lands its compact notch exactly over the hardware notch and has room to
-    /// expand without ever being clipped. Height covers the expanded panel plus
-    /// headroom for the drop shadow and the open "stretch" overshoot.
+    /// very top of the screen (its top edge sits on `screen.frame.maxY`) and spans
+    /// the full screen width, so the SwiftUI content — anchored top-center — lands
+    /// its compact notch over the hardware notch / menu bar and has room to expand
+    /// without ever being clipped. Height covers the expanded panel plus headroom
+    /// for the drop shadow and the open "stretch" overshoot.
     var hostWindowFrame: CGRect {
         let height = panelSize.height + Theme.panelHostVerticalHeadroom
         return CGRect(
@@ -141,8 +159,81 @@ struct NotchGeometry {
     /// auto-hide). In windowed mode the menu bar reserves a strip at the top so
     /// `visibleFrame.maxY` sits below `frame.maxY`; fullscreen collapses it,
     /// bringing the two flush.
+    ///
+    /// Note: this flips to `false` the moment the menu bar auto-reveals (cursor
+    /// resting at the top), so it's unreliable for "is a fullscreen app here?"
+    /// while opening the Notch — use `hasFullscreenWindow` for that.
     var menuBarHidden: Bool {
         screen.frame.maxY - screen.visibleFrame.maxY < 1
+    }
+
+    /// Whether a fullscreen app currently owns this screen's space.
+    ///
+    /// Geometry alone can't tell fullscreen from a maximized window: with "hide
+    /// menu bar in full screen" off, a fullscreen app's window stops below the
+    /// menu bar (same bounds a maximized window has) and `menuBarHidden` stays
+    /// false. The reliable, name-free signal is the Dock's *backdrop*: entering a
+    /// fullscreen space makes the Dock add a second screen-covering window (the
+    /// "fullscreen backdrop") on top of the wallpaper it already draws. So on a
+    /// normal space the Dock owns exactly one window covering this display; in a
+    /// fullscreen space it owns two. We count by owner (`kCGWindowOwnerName`,
+    /// available without Screen Recording permission) rather than reading window
+    /// names (which would require it).
+    var hasFullscreenWindow: Bool {
+        let frame = screen.frame
+        // CGWindow bounds use a top-left origin relative to the primary display;
+        // `primaryHeight` flips them back into AppKit's bottom-left screen space.
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? frame.height
+        guard let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly],
+            kCGNullWindowID
+        ) as? [[String: Any]] else { return false }
+
+        var dockFullScreenCount = 0
+        for window in windows {
+            guard let owner = window[kCGWindowOwnerName as String] as? String, owner == "Dock" else { continue }
+            // The wallpaper and backdrop sit at desktop level (deeply negative).
+            guard let layer = window[kCGWindowLayer as String] as? Int, layer < 0 else { continue }
+            guard let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict) else { continue }
+            let nsRect = CGRect(
+                x: bounds.origin.x,
+                y: primaryHeight - bounds.origin.y - bounds.height,
+                width: bounds.width,
+                height: bounds.height
+            )
+            if abs(nsRect.minX - frame.minX) < 2,
+               abs(nsRect.minY - frame.minY) < 2,
+               abs(nsRect.width - frame.width) < 2,
+               abs(nsRect.height - frame.height) < 2 {
+                dockFullScreenCount += 1
+            }
+        }
+        return dockFullScreenCount >= 2
+    }
+
+    /// Hit area that peeks / opens the Notch while it's *concealed*. On a display
+    /// with a hardware notch (e.g. a fullscreen app on the built-in screen, where
+    /// the compact Notch tucks into the island) it's the island's own footprint —
+    /// its full notch width and height — so resting the cursor anywhere on the
+    /// physical notch reveals and opens it, matching the windowed feel. On a
+    /// notch-less external display it stays the thin top strip (`notchActivateRect`)
+    /// so the menu bar isn't swallowed by a tall proximity band.
+    ///
+    /// Like the other top rects it overshoots the top edge by `topOvershoot`, since
+    /// `CGRect.contains` is half-open at `maxY` (a cursor parked on the very top row
+    /// would otherwise miss it).
+    var concealActivateRect: CGRect {
+        guard hasNotch else { return notchActivateRect }
+        let topOvershoot: CGFloat = 8
+        let width = closedWidth
+        let height = max(closedHeight, 24) + topOvershoot
+        return CGRect(
+            x: screen.frame.midX - width / 2,
+            y: screen.frame.maxY - height + topOvershoot,
+            width: width,
+            height: height
+        )
     }
 
     /// Screen the pointer is currently on, falling back to the main screen.

@@ -121,7 +121,7 @@ final class NotchOpenGestureMonitor {
 
     private func cursorIsOverNotch() -> Bool {
         guard let geometry = currentGeometry() else { return false }
-        let hitArea = isConcealed() ? geometry.notchActivateRect : geometry.hoverTargetRect
+        let hitArea = isConcealed() ? geometry.concealActivateRect : geometry.hoverTargetRect
         return hitArea.contains(NSEvent.mouseLocation)
     }
 
