@@ -136,6 +136,7 @@ struct FileColumnsHeader: View {
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(.white.opacity(0.4))
         .padding(.horizontal, 14)
+        .padding(.leading, 26)
         .frame(height: 24)
     }
 }

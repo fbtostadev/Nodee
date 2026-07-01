@@ -23,7 +23,7 @@ struct EdgePane<Content: View>: View {
     init(edge: Edge, fullWidth: CGFloat, collapsed: Bool,
          restingCenterFromTop: CGFloat = 30,
          dockedRestingCenterFromTop: CGFloat? = nil,
-         headerHeight: CGFloat = 0,
+         headerHeight: CGFloat = 80,
          toggle: @escaping () -> Void,
          @ViewBuilder content: @escaping () -> Content) {
         self.edge = edge

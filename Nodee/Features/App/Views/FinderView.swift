@@ -86,11 +86,11 @@ struct FinderView: View {
                         Button {
                             setSidebarCollapsed(false)
                         } label: {
-                            Image(systemName: "square.lefthalf.filled")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.white.opacity(0.55))
-                                .frame(width: 24, height: 32)
-                                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
+//                            Image(systemName: "square.lefthalf.filled")
+//                                .font(.system(size: 13))
+//                                .foregroundStyle(.white.opacity(0.55))
+//                                .frame(width: 24, height: 32)
+//                                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7))
                         }
                         .buttonStyle(.plain)
                         .padding(.leading, 8)
@@ -119,7 +119,9 @@ struct FinderView: View {
             // Edge handle to reveal the sidebar — chevron CTA on the left margin.
                 .overlay(alignment: .leading) {
                     if isSidebarCollapsed {
-                        PaneDivider(paneSide: .leading, mode: .expand, action: { setSidebarCollapsed(false) })
+                        EdgePane(edge: .leading, fullWidth: 0, collapsed: isSidebarCollapsed, toggle: { setSidebarCollapsed(false) }, content: {
+                            Image(systemName: "square")
+                        })
                             .transition(.opacity)
                     }
                 }

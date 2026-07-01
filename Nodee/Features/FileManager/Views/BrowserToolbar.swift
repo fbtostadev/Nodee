@@ -97,7 +97,8 @@ struct BrowserToolbar: View {
             if topInset > 0 {
                 Color.clear.frame(height: topInset)
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Spacer()
                 historyControls
                 if vm.displayMode == .list {
                     breadcrumb
@@ -109,7 +110,8 @@ struct BrowserToolbar: View {
                 newFolderButton
                 modePicker
             }
-            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.leading, 6)
             .frame(height: 38)
         }
         .background(.black.opacity(0.18))
