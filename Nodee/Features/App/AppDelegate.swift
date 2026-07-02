@@ -31,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the user invokes it via gesture (two-finger swipe down on the Notch),
         // shortcut, or menu — it never launches expanded.
         controller.activate()
+
+        // Resolve any previously granted folder access. On first run there's none,
+        // so the Notch shows its access request the first time it's opened — the
+        // grant happens right there, as a sheet of the panel (no external window).
+        appState.resolveHomeAccess()
     }
 
     private static func makeContainer() -> ModelContainer {

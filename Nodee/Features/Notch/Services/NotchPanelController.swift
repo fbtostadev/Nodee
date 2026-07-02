@@ -23,11 +23,6 @@ final class NotchPanelController {
 
     private var escMonitor: Any?
 
-    /// Last menu-bar / notch height measured while not fullscreen. Used to drop the
-    /// window by a reliable amount on a fullscreen display, where `safeAreaInsets`
-    /// (and thus `topInset`) can collapse to 0.
-    private var lastTopInset: CGFloat = 0
-
     /// Global + local `mouseMoved` monitors that drive the conceal/reveal peek
     /// while the Notch is hidden (external display / fullscreen).
     private var revealMonitors: [Any] = []
@@ -87,12 +82,11 @@ final class NotchPanelController {
 
     // MARK: - Commands
 
+    /// Run `work` with the Notch panel temporarily dropped below normal windows.
     /// A sandbox open/save panel is rendered out-of-process by Powerbox, which
     /// ignores the level we set on our local `NSOpenPanel` — so the only reliable
-    /// way to keep it from hiding behind our floating Notch is to lower the Notch
-    /// itself for the duration. Use `lowerPanelLevel()` before showing the picker
-    /// and `restorePanelLevel()` when it dismisses; for synchronous callers the
-    /// `runWithPanelLowered` wrapper does both around `work`.
+    /// way to keep it from hiding behind our always-on-top Notch is to lower the
+    /// Notch itself for the duration. Restored afterward.
     private var savedPanelLevel: NSWindow.Level?
 
     func lowerPanelLevel() {
@@ -106,10 +100,10 @@ final class NotchPanelController {
         panel.level = saved
         savedPanelLevel = nil
     }
-
     func runWithPanelLowered<T>(_ work: () -> T) -> T {
-        lowerPanelLevel()
-        defer { restorePanelLevel() }
+        let saved = panel.level
+        panel.level = .normal
+        defer { panel.level = saved }
         return work()
     }
 
@@ -117,15 +111,21 @@ final class NotchPanelController {
 
     func open() {
         guard !isOpen else { return }
-        // `isOpen` is still false here (it flips with the animation below), so tell
-        // `positionWindow` we're opening — a fullscreen display must drop the window
-        // below the menu bar for the expanded canvas.
-        positionWindow(expanded: true)
+        guard let screen = NotchGeometry.activeScreen() else { return }
+        let geometry = NotchGeometry(screen: screen)
+        let fullscren = geometry.hasFullscreenWindow
+        positionWindow()
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(gestureView) // so the finger gestures are heard
         installEscapeMonitor()
-        positionWindow(expanded: true)
+        
+        if fullscren {
+            panel.level = NSWindow.Level(rawValue:3)
+        } else {
+            panel.level = .statusBar
+        }
+//        positionWindow()
 
         withAnimation(Theme.panelOpen) {
             presentation.openProgress = 0
@@ -144,6 +144,7 @@ final class NotchPanelController {
         presentation.isHoveringGrabber = false
         presentation.grabberDragProgress = 0
         appState.isPanelOpen = false
+        panel.level = .statusBar
         positionWindow()
         // The window stays on screen as the compact Notch — never ordered out,
         // so the open gesture always has a target to grab. On a concealing
@@ -184,53 +185,28 @@ final class NotchPanelController {
 
     // MARK: - Geometry
 
-    /// Place the host window for the active screen. `expanded` says whether the
-    /// panel is (about to be) open; it defaults to the live `isOpen` for the
-    /// callers that just react to display/space changes. It matters only on a
-    /// fullscreen display, where the window drops below the menu bar *only while
-    /// expanded* (see below).
-    private func positionWindow(expanded: Bool? = nil) {
+    private func positionWindow() {
         guard let screen = NotchGeometry.activeScreen() else { return }
-        let willExpand = expanded ?? isOpen
         let geometry = NotchGeometry(screen: screen)
-        // Detect a fullscreen app via the window list, NOT `menuBarHidden`: the
-        // latter flips to false the instant the menu bar auto-reveals (cursor at
-        // the top to open the Notch), which made the drop never apply.
-        let fullscreen = geometry.hasFullscreenWindow
-        // Over the menu bar (reaching the hardware notch) when no app is fullscreen;
-        // `.floating` on a fullscreen display so the system menu bar renders *above*
-        // us and stays fully clickable. Don't clobber a temporarily lowered level
-        // (file picker).
-        let level: NSWindow.Level = fullscreen ? .floating : .statusBar
-        if savedPanelLevel == nil {
-            panel.level = level
-        } else {
-            savedPanelLevel = level
-        }
-        if geometry.topInset > 0 { lastTopInset = geometry.topInset }
+        let fullscren = geometry.hasFullscreenWindow
         var frame = geometry.hostWindowFrame
-        // On a fullscreen app's display, drop the whole window by the menu-bar
-        // height so the *expanded* Notch starts below the menu bar — leaving the
-        // black menu-bar strip uncovered and every menu reachable. Only while
-        // expanded: closed, the window stays pinned to the top so the concealed
-        // compact Notch tucks into the hardware island and peeks from there,
-        // exactly like a non-fullscreen notch. `topInset` is 0 in fullscreen, so
-        // prefer the last inset measured while windowed and fall back to a robust
-        // height that survives the menu bar collapsing.
-        if fullscreen, willExpand {
-            // The menu bar usually stays reserved in fullscreen here (the user
-            // keeps it shown), so the reserved strip is the exact height to clear.
-            // If a config does hide it (reserved == 0), fall back to a measured /
-            // robust menu-bar height so the drop is never 0.
-            let reserved = screen.frame.maxY - screen.visibleFrame.maxY
-            let drop = reserved > 1 ? reserved : (lastTopInset > 0 ? lastTopInset : geometry.menuBarHeight)
-            frame.origin.y -= drop
-        }
+        // When floating (below the menu bar), drop the window by the menu bar / notch height
+        // so the top of the content doesn't sit underneath the menu bar.
+//        if panel.level == .floating {
+//            frame.origin.y -= geometry.topInset
+//        }
         panel.setFrame(frame, display: true)
         // Publish the resolved screen so the SwiftUI surface sizes its geometry
         // against the *same* display the host window was just placed on. This is
         // the single source of truth for "which screen" — keeping window and
         // content in sync as the panel moves between built-in and external.
+        if !fullscren {
+            print(panel.level)
+            panel.level = .statusBar
+            print(panel.level)
+        }
+        print(panel.level)
+        print(fullscren)
         presentation.activeScreen = screen
         updateConcealState()
     }
@@ -238,22 +214,13 @@ final class NotchPanelController {
     // MARK: - Conceal / reveal (external display + fullscreen)
 
     /// Decide whether the active display should hide the compact Notch until the
-    /// pointer approaches: external monitors (no hardware notch), a display whose
-    /// menu bar is hidden (auto-hide), and any display running a fullscreen app.
-    /// The built-in notched display in windowed mode keeps the Notch always
-    /// visible, over the menu bar — so the user sees it and can open it by resting
-    /// on the notch.
-    ///
-    /// A fullscreen app conceals it too: the closed Notch then tucks into the
-    /// hardware island and only peeks/opens when the cursor is squarely over the
-    /// physical notch strip (`notchActivateRect`), so the fullscreen app's own top
-    /// chrome and the menu bar stay reachable — same feel as a windowed notch.
-    /// `menuBarHidden` alone can't catch this: with "hide menu bar in full screen"
-    /// off it reads false, so we OR in `hasFullscreenWindow`.
+    /// pointer approaches: external monitors (no hardware notch) and any display
+    /// whose menu bar is hidden (a fullscreen app, or auto-hide). The built-in
+    /// notched display in windowed mode keeps the Notch always visible.
     private func updateConcealState() {
         guard let screen = presentation.activeScreen else { return }
         let geometry = NotchGeometry(screen: screen)
-        let conceal = !geometry.hasNotch || geometry.menuBarHidden || geometry.hasFullscreenWindow
+        let conceal = !geometry.hasNotch || geometry.menuBarHidden
         if presentation.concealsNotch != conceal {
             withAnimation(Theme.notchStretch) {
                 presentation.concealsNotch = conceal
@@ -274,10 +241,9 @@ final class NotchPanelController {
         guard let screen = NotchGeometry.activeScreen() else { return }
         let geometry = NotchGeometry(screen: screen)
         // Peek the compact Notch only while the pointer is squarely over its
-        // footprint (the physical island on a notched display, else a thin top
-        // strip); tuck it away otherwise. No wider proximity band, so an app's
+        // footprint; tuck it away otherwise. No wider proximity band, so an app's
         // top chrome stays reachable in fullscreen.
-        let over = geometry.concealActivateRect.contains(NSEvent.mouseLocation)
+        let over = geometry.notchActivateRect.contains(NSEvent.mouseLocation)
         setReveal(over ? Theme.notchNearPeek : 0)
     }
 
@@ -315,9 +281,7 @@ final class NotchPanelController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // Entering/leaving a fullscreen space flips the window level
-            // (.statusBar ↔ .floating) and the conceal state, so reposition.
-            MainActor.assumeIsolated { self?.positionWindow() }
+            MainActor.assumeIsolated { self?.updateConcealState() }
         }
     }
 

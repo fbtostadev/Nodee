@@ -92,6 +92,14 @@ private final class FileDragView: NSView, NSDraggingSource {
     // hand it back after a click so that gesture keeps being heard.
     private weak var priorResponder: NSResponder?
 
+    // The Notch floats above other apps without activating Nodee, so when it opens
+    // over a windowed (non-fullscreen) app that app stays the active one. Without
+    // this, the first click into a row would be treated as a mere window-activation
+    // click and swallowed — the folder wouldn't open and the panel felt frozen.
+    // Acting on the first mouse makes clicks work immediately, exactly as they
+    // already did over a fullscreen app.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     // Claim only left-button events; let right-click, scroll, and hover fall
     // through to the SwiftUI row underneath. Inert while renaming.
     override func hitTest(_ point: NSPoint) -> NSView? {
