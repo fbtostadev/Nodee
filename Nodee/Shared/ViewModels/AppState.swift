@@ -106,11 +106,11 @@ final class AppState {
         // — no parent, so no sheet backdrop dimming the transparent Notch window (the
         // gray rectangle). Lower the Notch to `.normal` first so the picker isn't
         // hidden behind the always-on-top panel, and restore the level afterwards.
-        lowerPanelLevel()
+        //lowerPanelLevel()
         let response = await withCheckedContinuation { continuation in
             panel.begin { continuation.resume(returning: $0) }
         }
-        restorePanelLevel()
+        //restorePanelLevel()
         guard response == .OK, let url = panel.url,
               let bookmark = SecurityScopedBookmark.make(for: url) else { return nil }
 

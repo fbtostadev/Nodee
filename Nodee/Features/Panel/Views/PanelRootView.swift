@@ -92,6 +92,17 @@ struct PanelRootView: View {
             
             //Contents of the open notch
             VStack {
+                if geometry.hasFullscreenWindow {
+                    Rectangle()
+                        .frame(width: geometry.panelSize.width + gutterWidthBoost, height: geometry.topInset)
+                        .scaleEffect(1, anchor: .top)
+                        .opacity(contentVisible ? 1 : 0)
+                        .mask {
+                            panelShape(metrics)
+                                .frame(width: metrics.width, height: metrics.height)
+                        }
+                        .foregroundStyle(Color.black)
+                }
 //                ToolbarView(selection: $featureSelection)
                 surface
                 Spacer()
@@ -174,7 +185,7 @@ struct PanelRootView: View {
                 // a concealed/external display where the canvas is pinned to the top
                 // (so it reads as a rectangle emerging from the top edge instead of a
                 // rounded panel floating below it over a fullscreen app).
-                topCorner: (geometry.hasNotch || presentation.concealsNotch) ? 12 : corner,
+                topCorner: presentation.concealsNotch ? 0 : corner,
                 bottomCorner: corner
             )
         }
