@@ -1,0 +1,13 @@
+# Greenlight (App Store compliance scanner) config
+# https://github.com/RevylAI/greenlight
+
+rules:
+  # A regex desta regra procura "todo" (placeholder em inglês) e casa com
+  # palavras em português como "método" — a UI do Nodee é em PT-BR, então
+  # rebaixamos para info em vez de falhar o scan.
+  placeholder-content:
+    severity: info
+
+ignore:
+  - .planning
+  - NodeeTests
